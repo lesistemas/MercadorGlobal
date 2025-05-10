@@ -105,7 +105,7 @@ namespace ConsoleApp1
             EventosPendentes = eventosBase;
         }
 
-        public void AtualizarTurno()
+        public void AtualizarTurno(GerenciadorDeDicas dicasDoTurno)
         {
             // Reduz turnos ativos e remove eventos encerrados
             foreach (var evento in EventosAtivos.ToList())
@@ -135,6 +135,8 @@ namespace ConsoleApp1
             }
 
             TurnoAtual++;
+
+            dicasDoTurno.FinalizarTurno();
         }
     }
 
@@ -194,8 +196,7 @@ namespace ConsoleApp1
         public string CategoriaNarrativa { get; set; }
         public bool Desbloqueada { get; set; } = false;
         public bool GatilhoCombo { get; set; } = false;
-        public 
-        PremioRoleta PremioAdicional { get; set; } = PremioRoleta.Nenhum;
+        public PremioRoleta PremioAdicional { get; set; } = PremioRoleta.Nenhum;
     }
 
 
@@ -287,17 +288,15 @@ namespace ConsoleApp1
         };
         }
     }
-
     public class GerenciadorDeDicas
     {
         private List<DicaBet> baralhoDeDicas = new();
         private List<DicaBet> dicasDesbloqueadas = new();
         private readonly Random _rand = new();
 
-        public void IniciarNovoTurno()
+        public void IniciarNovoTurno(Jogador jogador, Pais paisAtual, MotorDoJogo motor, List<DicaBet> _baralhoDeDicas)
         {
-            var baseDicas = FabricaDeDicas.GerarBaseDicasSimuladas();
-            baralhoDeDicas = FabricaDeDicas.GerarDicasPorTurno(baseDicas);
+            baralhoDeDicas = _baralhoDeDicas;
             dicasDesbloqueadas.Clear();
         }
 
@@ -453,6 +452,48 @@ namespace ConsoleApp1
         }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         class Program
         {
             // Variáveis globais
@@ -478,6 +519,7 @@ namespace ConsoleApp1
             private static string melhorVendaTurnoAnterior = "Nenhuma";
             private static List<string> acoesDoTurno = new List<string>();
             private static Dictionary<int, List<decimal>> historicoPrecos = new Dictionary<int, List<decimal>>();
+            private static GerenciadorDeDicas dicasDoTurno = new GerenciadorDeDicas();
 
             // Métodos auxiliares
             static string ObterEmoji(string nomePais)
@@ -921,7 +963,7 @@ namespace ConsoleApp1
                     jogador.PaisAtualId = destino.Id;
                     Console.WriteLine($"✈️ Viajou para {destino.Nome} por R${custo:0.00}");
 
-                    motor.AtualizarTurno();
+                    motor.AtualizarTurno(dicasDoTurno);
                     var produtos = InputDados.ListaDeProdutos;
                     FinalizarTurno(jogador, motor.EventosAtivos, produtos, motor.TurnoAtual);
 
@@ -1366,6 +1408,7 @@ namespace ConsoleApp1
             }
 
 
+
             static void Main()
             {
                 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -1377,9 +1420,13 @@ namespace ConsoleApp1
                 var jogador = new Jogador { PaisAtualId = 1 };
                 jogador.ReputacaoPorPais[1] = 60;
 
+
                 int turno = 1;
                 while (turno <= 10)
                 {
+                    paisAtual = paises.First(p => p.Id == jogador.PaisAtualId); // primeiro define
+                    var dicas = GerarDicasCompletas(jogador, paisAtual, motor); // depois usa
+                    dicasDoTurno.IniciarNovoTurno(jogador, paisAtual, motor, dicas);
                     paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
                     int reputacao = 0;
                     if (jogador.ReputacaoPorPais.TryGetValue(jogador.PaisAtualId, out var valor))
@@ -1503,6 +1550,7 @@ namespace ConsoleApp1
                     Console.WriteLine("4. Viajar entre Países");
                     Console.WriteLine("5. Ver Eventos Ativos");
                     Console.WriteLine("6. Finalizar Turno");
+                    Console.WriteLine("7. Acessar Roletão de Dicas 💡");
                     Console.Write("Escolha uma opção: ");
                     var opcao = Console.ReadLine();
 
@@ -1572,7 +1620,7 @@ namespace ConsoleApp1
                     }
                     else if (opcao == "6")
                     {
-                        motor.AtualizarTurno();
+                        motor.AtualizarTurno(dicasDoTurno);
                         FinalizarTurno(jogador, motor.EventosAtivos, produtos, motor.TurnoAtual);
                         turno++;
 
@@ -1582,6 +1630,49 @@ namespace ConsoleApp1
                             return;
                         }
                     }
+                    else if (opcao == "7")
+                    {
+                        RoletaoInterface.ExibirRoletao(
+                            dicasDoTurno.ObterTodasDesbloqueadas(),
+                            turno,
+                            10,
+                            paisAtual.Nome,
+                            jogador.Dinheiro,
+                            (int)jogador.CargaAtual(),
+                            (int)jogador.CapacidadeCarga,
+                            jogador.ReputacaoPorPais[paisAtual.Id],
+                            estabilidadeVisual,
+                            riscoConfisco,
+                            motor.EventosAtivos.Count
+                        );
+
+                        ConsoleKey tecla;
+                        do
+                        {
+                            tecla = Console.ReadKey(true).Key;
+                            if (tecla == ConsoleKey.D)
+                            {
+                                RoletaoInterface.ComprarDica(dicasDoTurno.ObterTodasDesbloqueadas(), ref jogador.Dinheiro);
+                                Console.WriteLine("Pressione qualquer tecla para continuar...");
+                                Console.ReadKey();
+                                RoletaoInterface.ExibirRoletao(
+                                    dicasDoTurno.ObterTodasDesbloqueadas(),
+                                    turno,
+                                    10,
+                                    paisAtual.Nome,
+                                    jogador.Dinheiro,
+                                    (int)jogador.CargaAtual(),
+                                    (int)jogador.CapacidadeCarga,
+                                    jogador.ReputacaoPorPais[paisAtual.Id],
+                                    estabilidadeVisual,
+                                    riscoConfisco,
+                                    motor.EventosAtivos.Count
+                                );
+                            }
+                        } while (tecla != ConsoleKey.M); // Volta ao menu principal
+                    }
+
+
                     else
                     {
                         Console.WriteLine("Opção inválida.");

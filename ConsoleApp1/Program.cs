@@ -4,6 +4,7 @@ using System.Linq;
 
 namespace ConsoleApp1
 {
+    // Enums e classes base
     public enum ProdutoTipo { Normal, Ilegal }
     public enum CategoriaEvento { Economico, Politico, Ambiental, Sanitario, Militar, Cultural, Financeiro, Tecnologico }
 
@@ -52,9 +53,6 @@ namespace ConsoleApp1
         public List<int> PaisesComViagemBloqueada { get; set; }
         public Dictionary<int, decimal> RiscoComercial { get; set; }
         public Dictionary<int, decimal> ModificadorReputacao { get; set; }
-
-
-        // Novo campo para controle interno da duração
         public int TurnosAtivo { get; set; } = 0;
     }
 
@@ -83,11 +81,9 @@ namespace ConsoleApp1
             CapacidadeCarga = 100;
         }
 
-        public decimal CargaAtual()
-        {
-            return Inventario.Sum(i => i.PesoUnitario * i.Quantidade);
-        }
+        public decimal CargaAtual() => Inventario.Sum(i => i.PesoUnitario * i.Quantidade);
     }
+
     public class MotorDoJogo
     {
         public List<Evento> EventosAtivos { get; set; }
@@ -106,7 +102,7 @@ namespace ConsoleApp1
 
         public void AtualizarTurno()
         {
-            // Reduz turnos ativos e remove eventos encerrados
+            // Processa eventos ativos
             foreach (var evento in EventosAtivos.ToList())
             {
                 evento.TurnosAtivo--;
@@ -114,153 +110,397 @@ namespace ConsoleApp1
                 {
                     EventosAtivos.Remove(evento);
                     EventosFinalizados.Add(evento);
-                    Console.WriteLine($"✅ Evento encerrado: {evento.Nome}");
                 }
             }
 
-            // Ativa no máximo 1 evento novo por turno (se houver pendentes)
+            // Ativa novo evento se houver pendentes
             if (EventosPendentes.Any())
             {
-                var candidatos = EventosPendentes.ToList();
-                var escolhido = candidatos[rnd.Next(candidatos.Count)];
-
-                // Define duração aleatória entre 1 e 3 turnos
+                var escolhido = EventosPendentes[rnd.Next(EventosPendentes.Count)];
                 escolhido.TurnosAtivo = rnd.Next(1, 4);
-
                 EventosAtivos.Add(escolhido);
                 EventosPendentes.Remove(escolhido);
-
-                Console.WriteLine($"🚨 Novo evento ativado: {escolhido.Nome} (duração: {escolhido.TurnosAtivo} turno(s))");
             }
 
             TurnoAtual++;
         }
     }
 
-    class Program
+    // Classe para gerenciar a UI do menu principal
+    public static class MenuPrincipalUI
     {
-        // Variáveis globais
         private static Dictionary<string, string> emojiPaises = new Dictionary<string, string>
         {
             {"Brasil", "🇧🇷"}, {"EUA", "🇺🇸"}, {"Japão", "🇯🇵"},
             {"Alemanha", "🇩🇪"}, {"China", "🇨🇳"}, {"Rússia", "🇷🇺"}
         };
 
-        private static string estabilidadeVisual = "Média";
-        private static int riscoConfisco = 15;
-        private static Produto melhorProduto;
-        private static decimal precoMelhorProduto;
-        private static string produtoMaisLucrativo = "Nenhum";
-        private static decimal lucroMaior = 0;
-        private static bool ehIlegal = false;
-        private static string dicaGlobalVenda = "Considere vender itens com lucro acima de 20%";
-        private static string produtoMenorLucro = "Nenhum";
-        private static Pais paisAtual;
-        private static string produtoMaisValorizado = "Nenhum";
-        private static string produtoIlegalEmEstoque = "Nenhum";
-        private static decimal lucroTurno = 0;
-        private static string melhorVendaTurnoAnterior = "Nenhuma";
-        private static List<string> acoesDoTurno = new List<string>();
-        private static Dictionary<int, List<decimal>> historicoPrecos = new Dictionary<int, List<decimal>>();
-
-        // Métodos auxiliares
-        static string ObterEmoji(string nomePais)
+        public static void Exibir(Jogador jogador, MotorDoJogo motor, List<Pais> paises, List<Produto> produtos)
         {
-            return emojiPaises.TryGetValue(nomePais, out var emoji) ? emoji : "🌎";
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+
+            Console.Clear();
+            Console.WriteLine("════════════ 🎮 MERCADOR GLOBAL – MENU PRINCIPAL ════════════");
+            Console.WriteLine($"📆 Turno: {motor.TurnoAtual} / 10");
+            Console.WriteLine($"📍 País Atual: {ObterEmoji(paisAtual.Nome)} {paisAtual.Nome}");
+            Console.WriteLine($"💰 Dinheiro: R${jogador.Dinheiro:0.00}");
+            Console.WriteLine($"🎒 Carga: {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
+
+            ExibirEventosAtivosResumo(motor, paisAtual, paises, produtos);
+            ExibirDestaquesEstrategicos(jogador, motor, paises, produtos);
+
+            Console.WriteLine("\n1. Ver Inventário");
+            Console.WriteLine("2. Comprar Produtos");
+            Console.WriteLine("3. Vender Produtos");
+            Console.WriteLine("4. Viajar entre Países");
+            Console.WriteLine("5. Ver Eventos Ativos");
+            Console.WriteLine("6. Finalizar Turno");
+            Console.WriteLine("7. Compre Dicas");
+            Console.Write("Escolha uma opção: ");
         }
 
-        static string ObterTendenciaProduto(Produto produto)
-        {
-            string[] tendencias = { "Alta forte ▲▲", "Alta moderada ▲", "Estável →", "Queda moderada ▼", "Queda forte ▼▼" };
-            return tendencias[(produto.Id + DateTime.Now.Second) % tendencias.Length];
-        }
+        private static string ObterEmoji(string nomePais) =>
+            emojiPaises.TryGetValue(nomePais, out var emoji) ? emoji : "🌎";
 
-        static string HistoricoPreco(Produto produto)
+        private static void ExibirEventosAtivosResumo(MotorDoJogo motor, Pais paisAtual, List<Pais> paises, List<Produto> produtos)
         {
-            if (!historicoPrecos.ContainsKey(produto.Id))
+            if (motor.EventosAtivos.Any())
             {
-                historicoPrecos[produto.Id] = new List<decimal>();
-                for (int i = 0; i < 3; i++)
+                Console.WriteLine("\n════════════ 📢 EVENTOS ATIVOS – RESUMO ═════════════");
+                foreach (var evento in motor.EventosAtivos)
                 {
-                    historicoPrecos[produto.Id].Add(produto.PrecoBase * (decimal)(0.8 + new Random().NextDouble() * 0.4));
+                    Console.WriteLine($"🌀 {evento.Nome} ({evento.TurnosAtivo} turno(s) restante(s)");
+                }
+            }
+        }
+
+        private static void ExibirDestaquesEstrategicos(Jogador jogador, MotorDoJogo motor, List<Pais> paises, List<Produto> produtos)
+        {
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+
+            Console.WriteLine("\n════════════ 🔎 DESTAQUES ESTRATÉGICOS ════════════");
+
+            if (jogador.Inventario.Any())
+            {
+                var maisValorizado = jogador.Inventario
+                    .OrderByDescending(i => CalculadoraComercio.CalcularPrecoFinal(produtos.First(p => p.Id == i.ProdutoId), paisAtual, motor.EventosAtivos, jogador) / i.PrecoCompra)
+                    .First();
+                Console.WriteLine($"📈 Produto em alta: {maisValorizado.Nome}");
+            }
+
+            Console.WriteLine($"⚠️ Carga: {jogador.CargaAtual():0.0}/{jogador.CapacidadeCarga}kg");
+        }
+    }
+
+    // Classe para gerenciar a UI do inventário
+    public static class InventarioUI
+    {
+        public static void Exibir(Jogador jogador, List<Produto> produtos, List<Pais> paises, List<Evento> eventos)
+        {
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+
+            Console.Clear();
+            Console.WriteLine("════════════ 📦 INVENTÁRIO ════════════");
+            Console.WriteLine($"📍 País atual: {paisAtual.Nome}");
+            Console.WriteLine($"💰 R${jogador.Dinheiro:0.00} 🎒 {jogador.CargaAtual():0.0}kg/{jogador.CapacidadeCarga}kg");
+
+            Console.WriteLine("\n┌────┬────────────────────┬────┬──────┬──────────────┬──────────────┐");
+            Console.WriteLine("│ ID │ Produto            │Qtd │Peso  │ Preço Local  │ Preço Compra │");
+            Console.WriteLine("├────┼────────────────────┼────┼──────┼──────────────┼──────────────┤");
+
+            foreach (var item in jogador.Inventario)
+            {
+                var produto = produtos.First(p => p.Id == item.ProdutoId);
+                decimal precoLocal = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
+
+                Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome,-18} │ {item.Quantidade,3} │ {item.PesoUnitario * item.Quantidade,4:0.0} │ R${precoLocal,8:0.00} │ R${item.PrecoCompra,8:0.00} │");
+            }
+
+            Console.WriteLine("└────┴────────────────────┴────┴──────┴──────────────┴──────────────┘");
+            Console.WriteLine("\nPressione qualquer tecla para voltar...");
+            Console.ReadKey();
+        }
+    }
+
+    // Classe para gerenciar a UI de compra
+    public static class CompraUI
+    {
+        public static void Exibir(Jogador jogador, List<Produto> produtos, List<Pais> paises, List<Evento> eventos)
+        {
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+
+            Console.Clear();
+            Console.WriteLine("════════════ 🛒 COMPRAR PRODUTOS ════════════");
+            Console.WriteLine($"📍 País: {paisAtual.Nome}");
+            Console.WriteLine($"💰 R${jogador.Dinheiro:0.00} 🎒 {jogador.CargaAtual():0.0}kg/{jogador.CapacidadeCarga}kg");
+
+            Console.WriteLine("\n┌────┬────────────────────┬────────────┬────────────┐");
+            Console.WriteLine("│ ID │ Produto            │ Preço      │ Peso       │");
+            Console.WriteLine("├────┼────────────────────┼────────────┼────────────┤");
+
+            foreach (var produto in produtos)
+            {
+                decimal preco = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
+                Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome,-18} │ R${preco,8:0.00} │ {produto.Peso,4:0.0}kg │");
+            }
+
+            Console.WriteLine("└────┴────────────────────┴────────────┴────────────┘");
+            Console.WriteLine("\nDigite o ID do produto para comprar ou 0 para voltar: ");
+
+            if (int.TryParse(Console.ReadLine(), out int idProduto) && idProduto > 0)
+            {
+                var produto = produtos.FirstOrDefault(p => p.Id == idProduto);
+                if (produto != null)
+                {
+                    ProcessarCompra(jogador, produto, paisAtual, eventos);
+                }
+            }
+        }
+
+        private static void ProcessarCompra(Jogador jogador, Produto produto, Pais paisAtual, List<Evento> eventos)
+        {
+            decimal preco = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
+
+            Console.Write("Quantidade: ");
+            if (int.TryParse(Console.ReadLine(), out int quantidade) && quantidade > 0)
+            {
+                decimal custoTotal = quantidade * preco;
+                decimal pesoTotal = quantidade * produto.Peso;
+
+                if (jogador.Dinheiro >= custoTotal && jogador.CargaAtual() + pesoTotal <= jogador.CapacidadeCarga)
+                {
+                    jogador.Dinheiro -= custoTotal;
+                    AdicionarAoInventario(jogador, produto, quantidade, preco);
+                    Console.WriteLine($"✅ Comprou {quantidade}x {produto.Nome} por R${custoTotal:0.00}");
+                }
+                else
+                {
+                    Console.WriteLine("⚠️ Recursos insuficientes (dinheiro ou espaço)");
+                }
+                Console.ReadKey();
+            }
+        }
+
+        private static void AdicionarAoInventario(Jogador jogador, Produto produto, int quantidade, decimal preco)
+        {
+            var itemExistente = jogador.Inventario.FirstOrDefault(i => i.ProdutoId == produto.Id);
+
+            if (itemExistente != null)
+            {
+                itemExistente.Quantidade += quantidade;
+            }
+            else
+            {
+                jogador.Inventario.Add(new InventarioItem
+                {
+                    ProdutoId = produto.Id,
+                    Nome = produto.Nome,
+                    Quantidade = quantidade,
+                    PesoUnitario = produto.Peso,
+                    PrecoCompra = preco
+                });
+            }
+        }
+    }
+
+    // Classe para gerenciar a UI de venda
+    public static class VendaUI
+    {
+        public static void Exibir(Jogador jogador, List<Produto> produtos, List<Pais> paises, List<Evento> eventos)
+        {
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+
+            Console.Clear();
+            Console.WriteLine("════════════ 💰 VENDER PRODUTOS ════════════");
+            Console.WriteLine($"📍 País: {paisAtual.Nome}");
+            Console.WriteLine($"💰 R${jogador.Dinheiro:0.00} 🎒 {jogador.CargaAtual():0.0}kg/{jogador.CapacidadeCarga}kg");
+
+            Console.WriteLine("\n┌────┬────────────────────┬────┬──────────────┬──────────────┐");
+            Console.WriteLine("│ ID │ Produto            │Qtd │ Preço Venda  │ Preço Compra │");
+            Console.WriteLine("├────┼────────────────────┼────┼──────────────┼──────────────┤");
+
+            foreach (var item in jogador.Inventario.Where(i => i.Quantidade > 0))
+            {
+                var produto = produtos.First(p => p.Id == item.ProdutoId);
+                decimal precoVenda = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
+
+                Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome,-18} │ {item.Quantidade,3} │ R${precoVenda,8:0.00} │ R${item.PrecoCompra,8:0.00} │");
+            }
+
+            Console.WriteLine("└────┴────────────────────┴────┴──────────────┴──────────────┘");
+            Console.WriteLine("\nDigite o ID do produto para vender ou 0 para voltar: ");
+
+            if (int.TryParse(Console.ReadLine(), out int idProduto) && idProduto > 0)
+            {
+                var item = jogador.Inventario.FirstOrDefault(i => i.ProdutoId == idProduto);
+                if (item != null && item.Quantidade > 0)
+                {
+                    ProcessarVenda(jogador, item, produtos, paisAtual, eventos);
+                }
+            }
+        }
+
+        private static void ProcessarVenda(Jogador jogador, InventarioItem item, List<Produto> produtos, Pais paisAtual, List<Evento> eventos)
+        {
+            var produto = produtos.First(p => p.Id == item.ProdutoId);
+            decimal precoVenda = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
+
+            Console.Write("Quantidade: ");
+            if (int.TryParse(Console.ReadLine(), out int quantidade) && quantidade > 0 && quantidade <= item.Quantidade)
+            {
+                decimal total = quantidade * precoVenda;
+                jogador.Dinheiro += total;
+                item.Quantidade -= quantidade;
+
+                if (item.Quantidade == 0)
+                {
+                    jogador.Inventario.Remove(item);
+                }
+
+                Console.WriteLine($"✅ Vendeu {quantidade}x {item.Nome} por R${total:0.00}");
+                Console.ReadKey();
+            }
+        }
+    }
+
+    // Classe para gerenciar a UI de viagem
+    public static class ViagemUI
+    {
+        public static void Exibir(Jogador jogador, List<Pais> paises, MotorDoJogo motor)
+        {
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+            var destinos = paises.Where(p => p.Id != paisAtual.Id).ToList();
+
+            Console.Clear();
+            Console.WriteLine("════════════ ✈️ VIAGEM ENTRE PAÍSES ════════════");
+            Console.WriteLine($"📍 Atual: {paisAtual.Nome}");
+            Console.WriteLine($"💰 R${jogador.Dinheiro:0.00}");
+
+            Console.WriteLine("\n┌────┬────────────────────┬────────────┬────────────┐");
+            Console.WriteLine("│ ID │ País               │ Custo      │ Relação    │");
+            Console.WriteLine("├────┼────────────────────┼────────────┼────────────┤");
+
+            foreach (var destino in destinos)
+            {
+                decimal custo = CalculadoraComercio.CalcularCustoViagem(destino, jogador, motor.EventosAtivos);
+                string relacao = paisAtual.RelacoesDiplomaticas.ContainsKey(destino.Id) ?
+                    paisAtual.RelacoesDiplomaticas[destino.Id] : "Neutra";
+
+                Console.WriteLine($"│ {destino.Id,2} │ {destino.Nome,-18} │ R${custo,8:0.00} │ {relacao,-10} │");
+            }
+
+            Console.WriteLine("└────┴────────────────────┴────────────┴────────────┘");
+            Console.WriteLine("\nDigite o ID do país para viajar ou 0 para voltar: ");
+
+            if (int.TryParse(Console.ReadLine(), out int idDestino) && idDestino > 0)
+            {
+                var destino = paises.FirstOrDefault(p => p.Id == idDestino);
+                if (destino != null)
+                {
+                    ProcessarViagem(jogador, destino, motor);
+                }
+            }
+        }
+
+        private static void ProcessarViagem(Jogador jogador, Pais destino, MotorDoJogo motor)
+        {
+            decimal custo = CalculadoraComercio.CalcularCustoViagem(destino, jogador, motor.EventosAtivos);
+
+            if (jogador.Dinheiro >= custo)
+            {
+                jogador.Dinheiro -= custo;
+                jogador.PaisAtualId = destino.Id;
+                motor.AtualizarTurno();
+                Console.WriteLine($"✈️ Viajou para {destino.Nome} por R${custo:0.00}");
+                Console.ReadKey();
+            }
+            else
+            {
+                Console.WriteLine("❌ Dinheiro insuficiente para viagem");
+                Console.ReadKey();
+            }
+        }
+    }
+
+    // Classe para gerenciar a UI de eventos
+    public static class EventosUI
+    {
+        public static void Exibir(List<Evento> eventos, List<Pais> paises, List<Produto> produtos)
+        {
+            Console.Clear();
+            Console.WriteLine("════════════ ⚠️ EVENTOS ATIVOS ════════════");
+
+            if (!eventos.Any())
+            {
+                Console.WriteLine("\nNenhum evento ativo no momento");
+            }
+            else
+            {
+                foreach (var evento in eventos)
+                {
+                    Console.WriteLine($"\n🌀 {evento.Nome} (Turnos restantes: {evento.TurnosAtivo})");
+                    Console.WriteLine($"📖 {evento.Descricao}");
+
+                    if (evento.PaisesAfetadosDiretos.Any())
+                    {
+                        Console.WriteLine("🌍 Países afetados: " +
+                            string.Join(", ", evento.PaisesAfetadosDiretos.Select(id => paises.First(p => p.Id == id).Nome)));
+                    }
                 }
             }
 
-            var historico = historicoPrecos[produto.Id];
-            string resultado = "";
-            for (int i = 0; i < Math.Min(3, historico.Count - 1); i++)
+            Console.WriteLine("\nPressione qualquer tecla para voltar...");
+            Console.ReadKey();
+        }
+    }
+
+    // Classe para gerenciar o fim do turno
+    public static class TurnoUI
+    {
+        public static void Finalizar(Jogador jogador, MotorDoJogo motor, List<Produto> produtos, List<Pais> paises)
+        {
+            Console.Clear();
+            Console.WriteLine($"════════════ 🏁 FIM DO TURNO {motor.TurnoAtual} ════════════");
+
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+            Console.WriteLine($"📍 País: {paisAtual.Nome}");
+            Console.WriteLine($"💰 R${jogador.Dinheiro:0.00} 🎒 {jogador.CargaAtual():0.0}kg/{jogador.CapacidadeCarga}kg");
+
+            // Simular confisco de itens ilegais
+            var itensIlegais = jogador.Inventario
+                .Where(i => produtos.First(p => p.Id == i.ProdutoId).Tipo == ProdutoTipo.Ilegal)
+                .ToList();
+
+            if (itensIlegais.Any())
             {
-                decimal variacao = (historico[i + 1] - historico[i]) / historico[i] * 100;
-                resultado += variacao >= 0 ? $"↑{variacao:0.#}% " : $"↓{-variacao:0.#}% ";
+                Console.WriteLine("\n🚨 Itens ilegais no inventário:");
+                foreach (var item in itensIlegais)
+                {
+                    Console.WriteLine($"- {item.Quantidade}x {item.Nome}");
+                }
             }
-            return resultado.Trim();
+
+            Console.WriteLine("\nPressione qualquer tecla para continuar...");
+            Console.ReadKey();
         }
+    }
 
-        static string GerarDicaCompra(Produto produto, decimal preco, string status, string tendencia)
-        {
-            if (status.Contains("Ilegal")) return "Não compre - produto ilegal!";
-            if (status.Contains("Embargo")) return "Embargo ativo - evite comprar";
-
-            if (tendencia.Contains("Alta forte")) return "Ótima oportunidade - compre agora!";
-            if (tendencia.Contains("Alta moderada")) return "Boa oportunidade - considere comprar";
-            if (tendencia.Contains("Queda")) return "Preço em queda - espere para comprar";
-
-            return "Preço estável - compre se necessário";
-        }
-
-        static string GerarDicaVenda(Produto produto, decimal precoVenda, decimal precoCompra, string status)
-        {
-            if (status.Contains("Ilegal")) return "Venda rápido - risco de confisco!";
-
-            decimal lucroPercentual = (precoVenda - precoCompra) / precoCompra * 100;
-
-            if (lucroPercentual > 30) return "Lucro excelente - venda agora!";
-            if (lucroPercentual > 15) return "Bom lucro - considere vender";
-            if (lucroPercentual < 0) return "Prejuízo - espere valorizar";
-
-            return "Lucro moderado - avalie mercado";
-        }
-
-        static string GerarDicaInventario(Produto produto, decimal precoLocal, decimal precoCompra, string status)
-        {
-            if (status.Contains("Ilegal")) return "Prioridade venda - risco alto!";
-
-            decimal lucroPercentual = (precoLocal - precoCompra) / precoCompra * 100;
-            string tendencia = ObterTendenciaProduto(produto);
-
-            if (tendencia.Contains("Queda") && lucroPercentual > 10)
-                return "Venda antes da queda!";
-
-            if (tendencia.Contains("Alta") && lucroPercentual < 5)
-                return "Segure para valorizar";
-
-            return "Mantenha ou venda parcial";
-        }
-
-        static string ObterImportacoes(Pais pais)
-        {
-            if (pais.NecessidadeDeCompra.Count > 0)
-                return $"{pais.NecessidadeDeCompra.Count} itens";
-            return "Poucas";
-        }
-
-        static string ObterExportacoes(Pais pais)
-        {
-            if (pais.ForcaDeVenda.Count > 0)
-                return $"{pais.ForcaDeVenda.Count} itens";
-            return "Poucas";
-        }
-
-        static decimal CalcularPrecoFinal(Produto produto, Pais pais, List<Evento> eventos, Jogador jogador)
+    public static class CalculadoraComercio
+    {
+        /// <summary>
+        /// Calcula o preço final de um produto considerando todas as variáveis do mercado
+        /// </summary>
+        public static decimal CalcularPrecoFinal(Produto produto, Pais pais, List<Evento> eventos, Jogador jogador)
         {
             decimal preco = produto.PrecoBase;
-            Random rnd = new Random();
 
+            // Ajustes baseados nas características do país
             if (pais.ForcaDeVenda.Contains(produto.Id))
-                preco *= 0.8m;
+                preco *= 0.8m;  // Desconto para produtos que o país tem em abundância
             if (pais.NecessidadeDeCompra.Contains(produto.Id))
-                preco *= 1.3m;
+                preco *= 1.3m;  // Acréscimo para produtos que o país precisa
 
+            // Aplicar efeitos de eventos ativos
             foreach (var ev in eventos)
             {
                 if (ev.ProdutosAfetados.ContainsKey(produto.Id))
@@ -269,1021 +509,449 @@ namespace ConsoleApp1
                 }
             }
 
-            if (!jogador.ReputacaoPorPais.ContainsKey(pais.Id))
-            {
-                jogador.ReputacaoPorPais[pais.Id] = 50;
-            }
-
-            decimal modificadorReputacao = (jogador.ReputacaoPorPais[pais.Id] - 50) / 1000.0m;
-            preco *= (1 + modificadorReputacao);
-
+            // Aplicar taxa de importação do país
             preco *= (1 + pais.TaxaImportacao);
-            preco *= (decimal)(1 + (rnd.NextDouble() * 0.2 - 0.1));
 
-            // Atualiza histórico de preços
-            if (!historicoPrecos.ContainsKey(produto.Id))
-            {
-                historicoPrecos[produto.Id] = new List<decimal>();
-            }
-            historicoPrecos[produto.Id].Add(preco);
-            if (historicoPrecos[produto.Id].Count > 5)
-            {
-                historicoPrecos[produto.Id].RemoveAt(0);
-            }
-
+            // Garantir preço mínimo de 1.00
             return Math.Max(Math.Round(preco, 2), 1.00m);
         }
 
-        static decimal CalcularCustoViagem(Pais destino, Jogador jogador, List<Evento> eventos)
+        /// <summary>
+        /// Calcula o custo de viagem para um país destino
+        /// </summary>
+        public static decimal CalcularCustoViagem(Pais destino, Jogador jogador, List<Evento> eventos)
         {
             decimal baseCusto = 50;
-            decimal risco = eventos.Where(e => e.RiscoComercial.ContainsKey(destino.Id)).Sum(e => e.RiscoComercial[destino.Id]);
-            decimal adicional = baseCusto * risco;
-            decimal desconto = 0;
 
-            if (jogador.ReputacaoPorPais.TryGetValue(destino.Id, out int reputacao))
-            {
-                desconto = baseCusto * ((reputacao - 50) / 200.0m);
-            }
+            // Calcular risco total baseado em eventos ativos
+            decimal risco = eventos
+                .Where(e => e.RiscoComercial.ContainsKey(destino.Id))
+                .Sum(e => e.RiscoComercial[destino.Id]);
 
-            return Math.Max(baseCusto + adicional - desconto, 10);
+            // Aplicar risco ao custo base (com mínimo de 10)
+            return Math.Max(baseCusto + (baseCusto * risco), 10);
         }
 
-        static void ExibirMenuCompra(Jogador jogador, List<Produto> produtos, List<Pais> paises, List<Evento> eventos)
+        /// <summary>
+        /// Verifica se um produto é legal para ser comercializado em um país específico
+        /// </summary>
+        public static bool ProdutoEstaLegalNoPais(Produto produto, Pais pais, List<Evento> eventos)
         {
-            paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
-            var eventosAtivos = eventos.Where(e => e.TurnosAtivo > 0).ToList();
-
-            // Atualiza melhor produto para compra
-            melhorProduto = produtos
-                .Where(p => p.Tipo == ProdutoTipo.Normal)
-                .OrderBy(p => CalcularPrecoFinal(p, paisAtual, eventosAtivos, jogador) / p.PrecoBase)
-                .FirstOrDefault();
-
-            precoMelhorProduto = melhorProduto != null ?
-                CalcularPrecoFinal(melhorProduto, paisAtual, eventosAtivos, jogador) : 0;
-
-            Console.Clear();
-            Console.WriteLine("════════════ 🛒 MERCADO LOCAL – COMPRAR PRODUTOS ════════════");
-            Console.WriteLine($"📍 País: {ObterEmoji(paisAtual.Nome)} {paisAtual.Nome}       💰 R${jogador.Dinheiro:0.00}       🎒 Carga: {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
-            Console.WriteLine($"🌟 Reputação: {jogador.ReputacaoPorPais[paisAtual.Id]}/100    🧊 Estabilidade: {estabilidadeVisual}     🚨 Confisco: {riscoConfisco}%");
-            Console.WriteLine();
-
-            Console.WriteLine("┌────┬────────────────────┬────────────┬──────────────────────┬────────────┬──────┬────────────┬────────────┬────────────────────────────────────────┐");
-            Console.WriteLine("│ ID │ Produto            │ 💰 Local   │ Tendência            │ Situação   │ Peso │ Seu Estoque│ Últimos    │ Dica Estratégica                       │");
-            Console.WriteLine("├────┼────────────────────┼────────────┼──────────────────────┼────────────┼──────┼────────────┼────────────┼────────────────────────────────────────┤");
-
-            foreach (var produto in produtos)
-            {
-                decimal preco = CalcularPrecoFinal(produto, paisAtual, eventosAtivos, jogador);
-                bool legal = ProdutoEstaLegalNoPais(produto, paisAtual, eventosAtivos);
-                string status = legal ? "✅ Legal" : "❌ Ilegal";
-
-                string tendencia = ObterTendenciaProduto(produto);
-                var estoqueJogador = jogador.Inventario.FirstOrDefault(i => i.ProdutoId == produto.Id);
-                string estoqueStr = estoqueJogador != null ? $"{estoqueJogador.Quantidade} un. (R${estoqueJogador.PrecoCompra:0.00})" : "0 un.";
-                string ultimosPrecos = HistoricoPreco(produto);
-
-                string dica = GerarDicaCompra(produto, preco, status, tendencia);
-
-                Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome,-18} │ R${preco,8:0.00} │ {tendencia,-20} │ {status,-10} │ {produto.Peso,4:0.0} │ {estoqueStr,-10} │ {ultimosPrecos,-10} │ {dica,-38} │");
-            }
-
-            Console.WriteLine("└────┴────────────────────┴────────────┴──────────────────────┴────────────┴──────┴────────────┴────────────┴────────────────────────────────────────┘");
-            Console.WriteLine();
-            Console.WriteLine("════════════ 📊 ANÁLISE ESTRATÉGICA DO MERCADO ════════════");
-            Console.WriteLine($"📈 Melhor oportunidade: {(melhorProduto != null ? melhorProduto.Nome : "Nenhum")} (R${precoMelhorProduto:0.00} – valorização em alta)");
-            Console.WriteLine($"⚠️ Você já tem {jogador.CargaAtual():0.0}kg ocupados – escolha com sabedoria (máx: {jogador.CapacidadeCarga - jogador.CargaAtual():0.0}kg)");
-            Console.WriteLine("❗ Itens Ilegais NÃO podem ser comprados");
-            Console.WriteLine("💡 Use 'max' na quantidade para saber quanto pode comprar com dinheiro e espaço");
-            Console.WriteLine();
-            Console.Write("Digite o ID do produto para COMPRAR ou 0 para voltar: ");
-
-            if (int.TryParse(Console.ReadLine(), out int idProduto) && idProduto > 0)
-            {
-                var prod = produtos.FirstOrDefault(p => p.Id == idProduto);
-                if (prod == null || prod.Tipo == ProdutoTipo.Ilegal)
-                {
-                    Console.WriteLine("❌ Produto ilegal ou inválido. Não pode ser comprado.");
-                    Console.ReadKey();
-                    return;
-                }
-
-                decimal preco = CalcularPrecoFinal(prod, paisAtual, eventosAtivos, jogador);
-                Console.Write("Quantidade: ");
-                string input = Console.ReadLine();
-
-                int quantidade;
-                if (input.ToLower() == "max")
-                {
-                    decimal pesoDisponivel = jogador.CapacidadeCarga - jogador.CargaAtual();
-                    int maxPorPeso = (int)(pesoDisponivel / prod.Peso);
-                    int maxPorDinheiro = (int)(jogador.Dinheiro / preco);
-                    quantidade = Math.Min(maxPorPeso, maxPorDinheiro);
-                    Console.WriteLine($"Quantidade máxima possível: {quantidade}");
-                }
-                else if (!int.TryParse(input, out quantidade) || quantidade <= 0)
-                {
-                    Console.WriteLine("Quantidade inválida.");
-                    Console.ReadKey();
-                    return;
-                }
-
-                decimal pesoTotal = quantidade * prod.Peso;
-                decimal custoTotal = quantidade * preco;
-
-                if (jogador.CargaAtual() + pesoTotal > jogador.CapacidadeCarga)
-                {
-                    Console.WriteLine("⚠️ Excesso de carga.");
-                }
-                else if (jogador.Dinheiro < custoTotal)
-                {
-                    Console.WriteLine("⚠️ Dinheiro insuficiente.");
-                }
-                else
-                {
-                    jogador.Dinheiro -= custoTotal;
-                    var existente = jogador.Inventario.FirstOrDefault(i => i.ProdutoId == prod.Id);
-                    if (existente != null)
-                    {
-                        existente.Quantidade += quantidade;
-                    }
-                    else
-                    {
-                        jogador.Inventario.Add(new InventarioItem
-                        {
-                            ProdutoId = prod.Id,
-                            Nome = prod.Nome,
-                            Quantidade = quantidade,
-                            PesoUnitario = prod.Peso,
-                            PrecoCompra = preco
-                        });
-                    }
-                    Console.WriteLine($"✅ Comprou {quantidade}x {prod.Nome} por R${custoTotal:0.00}");
-                    acoesDoTurno.Add($"Compra: {quantidade}x {prod.Nome} por R${custoTotal:0.00}");
-                }
-                Console.ReadKey();
-            }
-        }
-
-        static void ExibirMenuVenda(Jogador jogador, List<Produto> produtos, List<Pais> paises, List<Evento> eventos)
-        {
-            paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
-            var eventosAtivos = eventos.Where(e => e.TurnosAtivo > 0).ToList();
-
-            // Atualiza informações de lucro para exibição
-            var itensComLucro = jogador.Inventario
-                .Where(i => i.Quantidade > 0)
-                .Select(i =>
-                {
-                    var prod = produtos.First(p => p.Id == i.ProdutoId);
-                    decimal precoVenda = CalcularPrecoFinal(prod, paisAtual, eventosAtivos, jogador);
-                    decimal lucroPercentual = (precoVenda - i.PrecoCompra) / i.PrecoCompra * 100;
-                    return new { Produto = prod, Item = i, Lucro = lucroPercentual };
-                })
-                .ToList();
-
-            if (itensComLucro.Any())
-            {
-                var maisLucrativo = itensComLucro.OrderByDescending(x => x.Lucro).First();
-                produtoMaisLucrativo = maisLucrativo.Produto.Nome;
-                lucroMaior = maisLucrativo.Lucro;
-                ehIlegal = maisLucrativo.Produto.Tipo == ProdutoTipo.Ilegal;
-
-                var menosLucrativo = itensComLucro.OrderBy(x => x.Lucro).First();
-                produtoMenorLucro = menosLucrativo.Produto.Nome;
-            }
-
-            Console.Clear();
-            Console.WriteLine("════════════ 💰 VENDA DE PRODUTOS – INVENTÁRIO COMPLETO ════════════");
-            Console.WriteLine($"📍 País atual: {ObterEmoji(paisAtual.Nome)} {paisAtual.Nome}     💰 R${jogador.Dinheiro:0.00}     🎒 {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
-            Console.WriteLine($"🌟 Reputação: {jogador.ReputacaoPorPais[paisAtual.Id]}/100     🚨 Confisco de ilegais: {riscoConfisco}% por turno");
-            Console.WriteLine();
-
-            Console.WriteLine("┌────┬────────────────────┬────┬──────┬──────────────┬──────────────┬──────────────┬────────────┬────────────────────────────────────────┐");
-            Console.WriteLine("│ ID │ Produto            │Qtd │Peso  │ 💰 Preço Local│ 💵 Preço Compra│ Lucro/Perda %│ Histórico   │ Dica Estratégica                       │");
-            Console.WriteLine("├────┼────────────────────┼────┼──────┼──────────────┼──────────────┼──────────────┼────────────┼────────────────────────────────────────┤");
-
-            foreach (var item in jogador.Inventario.Where(i => i.Quantidade > 0))
-            {
-                var produto = produtos.First(p => p.Id == item.ProdutoId);
-                decimal precoVenda = CalcularPrecoFinal(produto, paisAtual, eventosAtivos, jogador);
-                decimal lucro = precoVenda - item.PrecoCompra;
-                decimal lucroPercentual = ((precoVenda - item.PrecoCompra) / item.PrecoCompra) * 100;
-                bool legal = ProdutoEstaLegalNoPais(produto, paisAtual, eventosAtivos);
-                string status = legal ? "✅ Legal" : "❌ Ilegal"; 
-                string historico = HistoricoPreco(produto);
-                string dica = GerarDicaVenda(produto, precoVenda, item.PrecoCompra, status);
-
-                Console.WriteLine($"│ {produto.Id,2} │ {item.Nome,-18} │ {item.Quantidade,3} │ {item.PesoUnitario * item.Quantidade,4:0.0} │ R${precoVenda,8:0.00} │ R${item.PrecoCompra,8:0.00} │ {lucroPercentual,+6:0.##}%      │ {historico,-10} │ {dica,-38} │");
-            }
-
-            Console.WriteLine("└────┴────────────────────┴────┴──────┴──────────────┴──────────────┴──────────────┴────────────┴────────────────────────────────────────┘");
-            Console.WriteLine();
-            Console.WriteLine("════════════ 📊 RESUMO TÁTICO DE VENDA ════════════");
-            Console.WriteLine($"🏆 Maior lucro: {produtoMaisLucrativo} (+{lucroMaior:0.#}%) {(ehIlegal ? "— mas ilegal!" : "")}");
-            Console.WriteLine($"📉 Produto com menor valor atual: {produtoMenorLucro}");
-            Console.WriteLine($"📈 Recomendação: {dicaGlobalVenda}");
-            Console.WriteLine();
-            Console.Write("Digite o ID do produto para VENDER ou 0 para voltar: ");
-
-            if (int.TryParse(Console.ReadLine(), out int idVenda) && idVenda > 0)
-            {
-                var item = jogador.Inventario.FirstOrDefault(i => i.ProdutoId == idVenda);
-                if (item == null || item.Quantidade == 0)
-                {
-                    Console.WriteLine("Produto não disponível.");
-                    Console.ReadKey();
-                    return;
-                }
-
-                var produto = produtos.First(p => p.Id == item.ProdutoId);
-                decimal preco = CalcularPrecoFinal(produto, paisAtual, eventosAtivos, jogador);
-
-                Console.Write("Quantidade para vender: ");
-                if (int.TryParse(Console.ReadLine(), out int qtdVenda) && qtdVenda > 0)
-                {
-                    if (qtdVenda > item.Quantidade)
-                    {
-                        Console.WriteLine("Quantidade excede o estoque.");
-                        Console.ReadKey();
-                        return;
-                    }
-
-                    decimal total = qtdVenda * preco;
-                    item.Quantidade -= qtdVenda;
-                    jogador.Dinheiro += total;
-                    Console.WriteLine($"✅ Vendeu {qtdVenda}x {item.Nome} por R${total:0.00}");
-                    acoesDoTurno.Add($"Venda: {qtdVenda}x {item.Nome} por R${total:0.00}");
-
-                    // Remove item se quantidade zerou
-                    if (item.Quantidade == 0)
-                    {
-                        jogador.Inventario.Remove(item);
-                    }
-                    Console.ReadKey();
-                }
-            }
-        }
-
-        static void ExibirMenuViagem(Jogador jogador, List<Pais> paises, List<Evento> eventos)
-        {
-            paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
-            var eventosAtivos = eventos.Where(e => e.TurnosAtivo > 0).ToList();
-            var destinosDisponiveis = paises.Where(p => p.Id != paisAtual.Id).ToList();
-
-            Console.Clear();
-            Console.WriteLine("════════════ ✈️ ANÁLISE DE PAÍSES E OPÇÕES DE VIAGEM ════════════");
-            Console.WriteLine($"📍 País atual: {ObterEmoji(paisAtual.Nome)} {paisAtual.Nome}     💰 R${jogador.Dinheiro:0.00}     🎒 Carga: {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
-            Console.WriteLine($"🌟 Reputação no país: {jogador.ReputacaoPorPais[paisAtual.Id]}/100     🧊 Estabilidade: {estabilidadeVisual}");
-            Console.WriteLine();
-
-            Console.WriteLine("════════════ DISPONÍVEIS PARA VIAGEM ════════════");
-            Console.WriteLine("┌────┬────────────┬──────────────┬────────────┬────────────┬────────────┬────────────┬────────────┐");
-            Console.WriteLine("│ ID │ País       │ Relações     │ Importa     │ Exporta     │ Risco      │ Viagem     │ Status     │");
-            Console.WriteLine("├────┼────────────┼──────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤");
-
-            foreach (var destino in destinosDisponiveis)
-            {
-                string relacao = paisAtual.RelacoesDiplomaticas.ContainsKey(destino.Id) ?
-                    paisAtual.RelacoesDiplomaticas[destino.Id] : "Desconhecida";
-                decimal risco = eventosAtivos.Where(ev => ev.RiscoComercial.ContainsKey(destino.Id)).Sum(ev => ev.RiscoComercial[destino.Id]);
-                decimal custo = CalcularCustoViagem(destino, jogador, eventosAtivos);
-                string status = risco > 0.2m ? "🔴 Crise" : risco > 0.1m ? "🟡 Tensão" : "🟢 Estável";
-                bool bloqueado = eventosAtivos.Any(ev => ev.PaisesComViagemBloqueada.Contains(destino.Id));
-                if (bloqueado) status = "⛔ Bloqueado";
-
-                string importa = ObterImportacoes(destino);
-                string exporta = ObterExportacoes(destino);
-
-                Console.WriteLine($"│ {destino.Id,2} │ {ObterEmoji(destino.Nome)} {destino.Nome,-10} │ {relacao,-12} │ {importa,-10} │ {exporta,-10} │ {risco * 100,4:0}% │ R${custo,6:0.00} │ {status,-10} │");
-            }
-
-            Console.WriteLine("└────┴────────────┴──────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘");
-
-            Console.WriteLine();
-            Console.WriteLine("════════════ 🧭 ANÁLISE DETALHADA – EXEMPLO: País Selecionado ════════════");
-            Console.WriteLine("📦 Produtos que você pode vender: (baseado na legalidade e valorização)");
-            Console.WriteLine("💼 Força comercial: ...");
-            Console.WriteLine("🧱 Fraqueza comercial: ...");
-            Console.WriteLine("🌀 Evento ativo: ...");
-            Console.WriteLine("🚨 Risco comercial: ...");
-            Console.WriteLine("🌐 Relação diplomática com atual: ...");
-            Console.WriteLine("💰 Custo de viagem: ...");
-            Console.WriteLine("🔁 A viagem consumirá o turno atual");
-
-            Console.WriteLine();
-            Console.Write("Digite o ID do país para VIAJAR ou 0 para voltar: ");
-
-            if (int.TryParse(Console.ReadLine(), out int idDestino) && idDestino > 0)
-            {
-                var destino = paises.FirstOrDefault(p => p.Id == idDestino);
-                if (destino == null || destino.Id == paisAtual.Id)
-                {
-                    Console.WriteLine("Destino inválido.");
-                    Console.ReadKey();
-                    return;
-                }
-
-                bool bloqueado = eventosAtivos.Any(ev => ev.PaisesComViagemBloqueada.Contains(destino.Id));
-                if (bloqueado)
-                {
-                    Console.WriteLine("⛔ Viagem bloqueada por evento.");
-                    Console.ReadKey();
-                    return;
-                }
-
-                decimal custo = CalcularCustoViagem(destino, jogador, eventosAtivos);
-                if (jogador.Dinheiro < custo)
-                {
-                    Console.WriteLine("❌ Dinheiro insuficiente para viagem.");
-                    Console.ReadKey();
-                    return;
-                }
-
-                jogador.Dinheiro -= custo;
-                jogador.PaisAtualId = destino.Id;
-                Console.WriteLine($"✈️ Viajou para {destino.Nome} por R${custo:0.00}");
-
-                motor.AtualizarTurno();
-                var produtos = InputDados.ListaDeProdutos;
-                FinalizarTurno(jogador, motor.EventosAtivos, produtos, motor.TurnoAtual);
-
-                Console.ReadKey();
-            }
-        }
-
-        static void ExibirEventosAtivos(List<Evento> eventos, List<Pais> paises, List<Produto> produtos)
-        {
-            Console.Clear();
-            Console.WriteLine("════════════ ⚠️ EVENTOS ATIVOS NO MUNDO ════════════");
-            Console.WriteLine($"📆 Turno atual: {motor.TurnoAtual} / 10     Total de eventos ativos: {eventos.Count}");
-            Console.WriteLine();
-
-            int count = 1;
-            foreach (var evento in eventos)
-            {
-                Console.WriteLine($"🌀 {count}. {evento.Nome}     (⭐ Gravidade {evento.Gravidade} – faltam {evento.TurnosAtivo} turno(s))");
-                Console.WriteLine($"📖 {evento.Descricao}");
-
-                if (evento.PaisesAfetadosDiretos.Any())
-                {
-                    Console.Write("🌍 Países afetados diretamente: ");
-                    Console.WriteLine(string.Join(", ", evento.PaisesAfetadosDiretos.Select(id => ObterEmoji(paises.First(p => p.Id == id).Nome) + " " + paises.First(p => p.Id == id).Nome)));
-                }
-
-                if (evento.ProdutosAfetados.Any())
-                {
-                    Console.WriteLine("📦 Produtos impactados:");
-                    foreach (var kv in evento.ProdutosAfetados)
-                    {
-                        var nome = produtos.FirstOrDefault(p => p.Id == kv.Key)?.Nome ?? "Desconhecido";
-                        string variacao = kv.Value > 0 ? $"+{kv.Value * 100:0}%" : $"{kv.Value * 100:0}%";
-                        Console.WriteLine($"   - {nome}: {variacao}");
-                    }
-                }
-
-                if (evento.PaisesFavorecidos.Any())
-                {
-                    Console.WriteLine("🌟 Países favorecidos:");
-                    foreach (var kv in evento.PaisesFavorecidos)
-                    {
-                        var paisNome = paises.FirstOrDefault(p => p.Id == kv.Key)?.Nome ?? "Desconhecido";
-                        var produtosBonus = kv.Value.Select(pid => produtos.FirstOrDefault(p => p.Id == pid.Key)?.Nome + $" (+{pid.Value * 100:0}%)");
-                        Console.WriteLine($"   - {paisNome}: {string.Join(", ", produtosBonus)}");
-                    }
-                }
-
-                if (evento.RiscoComercial.Any())
-                {
-                    Console.WriteLine("🔻 Risco comercial:");
-                    foreach (var kv in evento.RiscoComercial)
-                    {
-                        var paisNome = paises.FirstOrDefault(p => p.Id == kv.Key)?.Nome ?? "Desconhecido";
-                        Console.WriteLine($"   - {paisNome}: {kv.Value * 100:0}%");
-                    }
-                }
-
-                if (evento.ModificadorReputacao.Any())
-                {
-                    Console.WriteLine("🧭 Reputação:");
-                    foreach (var kv in evento.ModificadorReputacao)
-                    {
-                        var paisNome = paises.FirstOrDefault(p => p.Id == kv.Key)?.Nome ?? "Desconhecido";
-                        Console.WriteLine($"   - {paisNome}: {(kv.Value >= 0 ? "+" : "")}{kv.Value}");
-                    }
-                }
-
-                if (evento.PaisesComViagemBloqueada.Any())
-                {
-                    Console.WriteLine("⛔ Viagens bloqueadas: " +
-                        string.Join(", ", evento.PaisesComViagemBloqueada.Select(id => ObterEmoji(paises.First(p => p.Id == id).Nome) + " " + paises.First(p => p.Id == id).Nome)));
-                }
-
-                Console.WriteLine(new string('═', 90));
-                count++;
-            }
-
-            Console.WriteLine();
-            Console.WriteLine("💡 Eventos afetam preços, riscos e reputação de forma dinâmica.");
-            Console.WriteLine("🔁 Todos os efeitos duram por turnos definidos e desaparecem ao final.");
-            Console.WriteLine();
-            Console.WriteLine("Pressione qualquer tecla para voltar ao menu.");
-            Console.ReadKey();
-        }
-
-        static void FinalizarTurno(Jogador jogador, List<Evento> eventos, List<Produto> produtos, int turnoAtual)
-        {
-            Console.Clear();
-            Console.WriteLine($"════════════ 🏁 FIM DO TURNO {turnoAtual} – RELATÓRIO COMPLETO ════════════");
-
-            // Acessa o país atual com base no ID do jogador
-            var paisAtual = InputDados.ListaDePaises.FirstOrDefault(p => p.Id == jogador.PaisAtualId);
-
-            // Confisco de produtos ilegais no país atual
-            var ilegais = jogador.Inventario
-                .Where(i =>
-                    !ProdutoEstaLegalNoPais(produtos.First(p => p.Id == i.ProdutoId), paisAtual, eventos) &&
-                    produtos.First(p => p.Id == i.ProdutoId).Tipo == ProdutoTipo.Ilegal &&
-                    i.Quantidade > 0)
-                .ToList();
-
-
-            Random rng = new Random();
-            List<string> confiscados = new();
-
-            int baseRisco = 20;
-            int reputacao;
-            if (!jogador.ReputacaoPorPais.TryGetValue(jogador.PaisAtualId, out reputacao))
-            {
-                reputacao = 50; // Valor padrão neutro
-                jogador.ReputacaoPorPais[jogador.PaisAtualId] = reputacao;
-            }
-            if (reputacao < 30)
-                baseRisco += 15;
-
-            bool fiscalizacaoReforcada = eventos.Any(e =>
-                e.TurnosAtivo > 0 &&
-                e.Categoria == CategoriaEvento.Politico &&
-                e.PaisesAfetadosDiretos.Contains(jogador.PaisAtualId));
-
-            if (fiscalizacaoReforcada)
-                baseRisco += 10;
-
-            foreach (var item in ilegais)
-            {
-                if (rng.Next(1, 101) <= Math.Clamp(baseRisco, 5, 70))
-                {
-                    confiscados.Add($"{item.Quantidade}x {item.Nome} (Risco: {baseRisco}%)");
-                    jogador.Inventario.Remove(item);
-                }
-            }
-
-            // Mostrar inventário final
-            Console.WriteLine($"📍 Local atual: {paisAtual.Nome}        💰 Dinheiro: R${jogador.Dinheiro:0.00}        🎒 Carga: {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
-            Console.WriteLine($"🌟 Reputação no país: {jogador.ReputacaoPorPais[jogador.PaisAtualId]}/100");
-            Console.WriteLine($"📦 Itens totais: {jogador.Inventario.Sum(i => i.Quantidade)}");
-
-            Console.WriteLine("\n════════════ ✅ AÇÕES DO TURNO ════════════");
-            foreach (var acao in acoesDoTurno)
-            {
-                Console.WriteLine($"• {acao}");
-            }
-
-            if (confiscados.Any())
-            {
-                Console.WriteLine("\n🚨 Produtos confiscados:");
-                foreach (var item in confiscados)
-                    Console.WriteLine($"• {item}");
-            }
-            else
-            {
-                Console.WriteLine("\n✅ Nenhum item ilegal foi confiscado neste turno.");
-            }
-
-            Console.WriteLine("\n🔄 Eventos atualizados:");
-            foreach (var evento in eventos.Where(e => e.TurnosAtivo == 0))
-            {
-                Console.WriteLine($"🌀 Evento encerrado: {evento.Nome}");
-            }
-
-            Console.WriteLine("\nPressione qualquer tecla para iniciar o próximo turno...");
-            acoesDoTurno.Clear();
-            Console.ReadKey();
-        }
-
-        static void ExibirFimDeJogo(Jogador jogador, List<Evento> eventos, List<Pais> paises, List<Produto> produtos, int turnoFinal)
-        {
-            Console.Clear();
-            Console.WriteLine("════════════ 🏁 FIM DO JOGO – RELATÓRIO FINAL ════════════");
-
-            var paisFinal = paises.First(p => p.Id == jogador.PaisAtualId);
-            int totalItens = jogador.Inventario.Sum(i => i.Quantidade);
-            int ilegais = jogador.Inventario.Count(i =>
-                !ProdutoEstaLegalNoPais(produtos.First(p => p.Id == i.ProdutoId), paisFinal, eventos) &&
-                produtos.First(p => p.Id == i.ProdutoId).Tipo == ProdutoTipo.Ilegal); decimal pesoTotal = jogador.CargaAtual();
-            double reputacaoMedia = jogador.ReputacaoPorPais.Values.Any() ? jogador.ReputacaoPorPais.Values.Average() : 50;
-
-            Console.WriteLine($"📆 Duração da campanha: {turnoFinal} turnos");
-            Console.WriteLine($"🧳 País final: {paisFinal.Nome}        💰 Dinheiro final: R${jogador.Dinheiro:0.00}");
-            Console.WriteLine($"📦 Inventário final: {totalItens} produtos ({ilegais} ilegais) – {pesoTotal:0.0}kg / {jogador.CapacidadeCarga}kg");
-            Console.WriteLine($"🌟 Reputação média global: {reputacaoMedia:0.0}/100");
-
-            // Lucros
-            decimal lucroTotal = jogador.Inventario.Sum(i => i.Quantidade * (CalcularPrecoFinal(produtos.First(p => p.Id == i.ProdutoId), paisFinal, eventos, jogador) - i.PrecoCompra));
-
-            var itemMaisLucrativo = jogador.Inventario
-                .Where(i => i.Quantidade > 0)
-                .OrderByDescending(i => CalcularPrecoFinal(produtos.First(p => p.Id == i.ProdutoId), paisFinal, eventos, jogador) - i.PrecoCompra)
-                .FirstOrDefault();
-
-            var itemMaisArriscado = jogador.Inventario
-                .Where(i => produtos.First(p => p.Id == i.ProdutoId).Tipo == ProdutoTipo.Ilegal)
-                .OrderByDescending(i => i.Quantidade)
-                .FirstOrDefault();
-
-            Console.WriteLine("\n════════════ 📊 DESEMPENHO FINANCEIRO ════════════");
-            Console.WriteLine($"💸 Lucro total acumulado: R${lucroTotal:0.00}");
-            Console.WriteLine($"📈 Produto mais lucrativo: {(itemMaisLucrativo != null ? itemMaisLucrativo.Nome : "Nenhum")}");
-            Console.WriteLine($"📉 Produto mais arriscado: {(itemMaisArriscado != null ? itemMaisArriscado.Nome : "Nenhum")}");
-            Console.WriteLine($"🛒 Total de compras: {totalItens}");
-            Console.WriteLine($"💰 Total de vendas: {(int)(totalItens * 0.85)} (estimativa)");
-
-            Console.WriteLine("\n════════════ 🧠 DESTAQUES ESTRATÉGICOS ════════════");
-            if (itemMaisLucrativo != null)
-                Console.WriteLine($"✅ Melhor decisão: Vender {itemMaisLucrativo.Nome} com lucro");
-            if (itemMaisArriscado != null)
-                Console.WriteLine($"⚠️ Pior decisão: Manter {itemMaisArriscado.Nome} ilegal até o fim");
-            if (ilegais > 0)
-                Console.WriteLine($"🏆 Jogada mais ousada: Conservar itens ilegais com risco");
-
-            Console.WriteLine("\n════════════ 🌍 INTERAÇÃO COM O MUNDO ════════════");
-            var eventosEnfrentados = eventos.Where(e => e.TurnosAtivo < e.Gravidade).ToList();
-            Console.WriteLine($"🌀 Eventos enfrentados: {eventosEnfrentados.Count}");
-            foreach (var e in eventosEnfrentados)
-                Console.WriteLine($"• {e.Nome}");
-
-            Console.WriteLine($"✈️ Países visitados: {string.Join(", ", jogador.ReputacaoPorPais.Keys.Select(id => paises.First(p => p.Id == id).Nome))}");
-            Console.WriteLine($"⛔ Viagens bloqueadas enfrentadas: {eventos.SelectMany(e => e.PaisesComViagemBloqueada).Distinct().Count()}");
-
-            Console.WriteLine("\n════════════ 🧾 ANÁLISE FINAL ════════════");
-            Console.WriteLine("🔹 Estratégia equilibrada, com boas decisões táticas.");
-            if (ilegais > 0) Console.WriteLine("🔹 Itens ilegais impactaram o risco – avalie reduzir em futuras rodadas.");
-            if (pesoTotal >= jogador.CapacidadeCarga * 0.9m) Console.WriteLine("🔹 Melhor uso da carga poderia gerar mais lucro.");
-
-            Console.WriteLine("\n════════════ 🧠 CLASSIFICAÇÃO FINAL ════════════");
-            Console.WriteLine($"⭐ DESEMPENHO: {(lucroTotal >= 1500 ? "AVANÇADO" : lucroTotal >= 800 ? "INTERMEDIÁRIO" : "INICIANTE")}");
-            Console.WriteLine("🎯 TÁTICA: ALTA PRECISÃO");
-            Console.WriteLine($"🧪 RISCO: {(ilegais > 0 ? "MODERADO" : "BAIXO")}");
-            Console.WriteLine("💡 DECISÃO: EFICIENTE");
-
-            Console.WriteLine("\nObrigado por jogar o Mercador Global!");
-            Console.WriteLine("Pressione qualquer tecla para sair...");
-            Console.ReadKey();
-        }
-
-        private static MotorDoJogo motor;
-        static bool ProdutoEstaLegalNoPais(Produto produto, Pais pais, List<Evento> eventos)
-        {
-            // Se produto está fora da lista ProdutosAceitos, é ilegal por padrão
+            // Verificar se o país normalmente aceita este produto
             bool legalBase = pais.ProdutosAceitos.Contains(produto.Id);
 
-            // Se evento ativo coloca embargo no produto, ele é ilegal mesmo se estiver aceito
+            // Verificar se há algum embargo ativo contra este produto
             bool embargado = eventos.Any(ev =>
-                ev.ProdutosAfetados.TryGetValue(produto.Id, out decimal impacto) && impacto == -1 &&
-                (ev.PaisesAfetadosDiretos.Contains(pais.Id) || !ev.PaisesAfetadosDiretos.Any()) // Se afeta o país ou é global
-            );
+                ev.ProdutosAfetados.TryGetValue(produto.Id, out decimal impacto) &&
+                impacto == -1 &&  // -1 indica embargo total
+                ev.PaisesAfetadosDiretos.Contains(pais.Id));
 
             return legalBase && !embargado;
         }
+    }
+
+
+    public enum DicaTipo
+    {
+        ProdutoValorizado,
+        ProdutoLegalAqui,
+        PrecoBaixo,
+        QuedaDePreco,
+        ProdutoIlegalTentador,
+        RotaLimpa,
+        ProdutoGlobal,
+        ReputacaoBaixa,
+        PaisEsquecido,
+        HistoricoAlta,
+        RotaSeguraMultipla,
+        RiscoAlto
+    }
+
+    public static class EmojiHelper
+    {
+        private static readonly Dictionary<string, string> emojiPaises = new Dictionary<string, string>
+        {
+            {"Brasil", "🇧🇷"},
+            {"EUA", "🇺🇸"},
+            {"Japão", "🇯🇵"},
+            {"Alemanha", "🇩🇪"},
+            {"China", "🇨🇳"},
+            {"Rússia", "🇷🇺"},
+            {"Índia", "🇮🇳"},
+            {"Reino Unido", "🇬🇧"},
+            {"França", "🇫🇷"},
+            {"Argentina", "🇦🇷"}
+        };
+
+        public static string ObterEmoji(string nomePais)
+        {
+            return emojiPaises.TryGetValue(nomePais, out var emoji) ? emoji : "🌍";
+        }
+    }
+
+
+    public static class DicasManager
+    {
+        private static List<(DicaTipo Tipo, string Texto)> _dicasDisponiveis = new();
+        private static List<string> _dicasCompradas = new();
+        private static decimal _precoDica = 2.00m;
+
+        public static void CarregarDicasParaTurno(Jogador jogador, MotorDoJogo motor, List<Pais> paises,
+                                                List<Produto> produtos, Dictionary<int, List<decimal>> historicoPrecos)
+        {
+            _dicasDisponiveis.Clear();
+            _dicasCompradas.Clear();
+
+            var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+            var eventosRelevantes = motor.EventosAtivos
+                .Where(e =>
+                    e.PaisesAfetadosDiretos.Contains(paisAtual.Id) ||
+                    (e.PaisesFavorecidos?.ContainsKey(paisAtual.Id) ?? false) ||
+                    (e.RiscoComercial?.ContainsKey(paisAtual.Id) ?? false))
+                .ToList();
+            var dicas = new List<(DicaTipo Tipo, string Texto)>();
+
+
+            // 1. Produtos valorizados
+            var produtosValorizados = eventosRelevantes
+                .SelectMany(e => e.ProdutosAfetados)
+                .Where(kv => kv.Value > 0)
+                .Select(kv => InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == kv.Key)?.Nome)
+                .Where(nome => nome != null)
+                .Distinct()
+                .ToList();
+
+            if (produtosValorizados.Any())
+            {
+                dicas.Add((DicaTipo.ProdutoValorizado, $"🔼 Jogue firme: venda {string.Join(", ", produtosValorizados)} em regiões quentes!"));
+            }
+
+            // 2. Produtos temporariamente legais
+            foreach (var produto in InputDados.ListaDeProdutos)
+            {
+                bool legalAqui = CalculadoraComercio.ProdutoEstaLegalNoPais(produto, paisAtual, motor.EventosAtivos);
+                if (!legalAqui) continue;
+
+                var paisesIlegais = InputDados.ListaDePaises
+                   .Where(p => p.Id != paisAtual.Id && !CalculadoraComercio.ProdutoEstaLegalNoPais(produto, p, motor.EventosAtivos))
+                   .Select(p => EmojiHelper.ObterEmoji(p.Nome))
+                    .ToList();
+
+                if (paisesIlegais.Any())
+                {
+                    dicas.Add((DicaTipo.ProdutoLegalAqui, $"🟢 {produto.Nome}: tá legal aqui, mas proibido em {string.Join(", ", paisesIlegais)}"));
+                }
+            }
+
+            // 3. Produtos muito baratos
+            var produtosMuitoBaratos = InputDados.ListaDeProdutos
+                .Where(p => CalculadoraComercio.CalcularPrecoFinal(p, paisAtual, motor.EventosAtivos, jogador) <= p.PrecoBase * 0.7m)
+                .ToList();
+
+            foreach (var p in produtosMuitoBaratos)
+            {
+                var sugestoes = InputDados.ListaDePaises
+                    .Where(pais => pais.Id != paisAtual.Id && CalculadoraComercio.ProdutoEstaLegalNoPais(p, pais, motor.EventosAtivos))
+                    .Take(3)
+                    .Select(pais => EmojiHelper.ObterEmoji(pais.Nome));
+
+                if (sugestoes.Any())
+                {
+                    dicas.Add((DicaTipo.PrecoBaixo, $"💰 {p.Nome} tão baratinhos - compra agora e exporta pra {string.Join(", ", sugestoes)}!"));
+                }
+            }
+
+            // 4. Produtos com queda recente
+            var produtosComQuedaRecente = InputDados.ListaDeProdutos
+                .Where(p => historicoPrecos.ContainsKey(p.Id) && historicoPrecos[p.Id].Count >= 3)
+                .Where(p =>
+                {
+                    var hist = historicoPrecos[p.Id];
+                    return hist[^1] < hist[^2] && hist[^2] < hist[^3];
+                })
+                .ToList();
+
+            foreach (var p in produtosComQuedaRecente)
+            {
+                var ultima = historicoPrecos[p.Id][^1];
+                var mediaAnterior = historicoPrecos[p.Id].Take(historicoPrecos[p.Id].Count - 1).Average();
+                var variacao = (mediaAnterior - ultima) / mediaAnterior * 100;
+                if (variacao >= 20)
+                {
+                    dicas.Add((DicaTipo.QuedaDePreco, $"📉 {p.Nome} caiu {variacao:0.#}% - estoque agora, vai valorizar!"));
+                }
+            }
+
+            // 5. Produtos ilegais tentadores
+            var tentacoes = InputDados.ListaDeProdutos
+                .Where(p => p.Tipo == ProdutoTipo.Ilegal && !CalculadoraComercio.ProdutoEstaLegalNoPais(p, paisAtual, motor.EventosAtivos))
+                .ToList();
+
+            foreach (var p in tentacoes)
+            {
+                dicas.Add((DicaTipo.ProdutoIlegalTentador, $"🕶️ {p.Nome} tá bombando, mas é ilegal aqui. Se topar, segura firme!"));
+            }
+
+            // 6. Rotas limpas
+            var rotaLimpa = InputDados.ListaDeProdutos
+                .Where(p => CalculadoraComercio.ProdutoEstaLegalNoPais(p, paisAtual, motor.EventosAtivos))
+                .Select(p => new
+                {
+                    Produto = p,
+                    Destinos = InputDados.ListaDePaises
+                        .Where(pais => CalculadoraComercio.ProdutoEstaLegalNoPais(p, pais, motor.EventosAtivos) && pais.NecessidadeDeCompra.Contains(p.Id))
+                        .Where(pais =>
+                            !motor.EventosAtivos.Any(ev => ev.RiscoComercial.ContainsKey(pais.Id) && ev.RiscoComercial[pais.Id] > 0.2m))
+                        .Select(pais => EmojiHelper.ObterEmoji(pais.Nome))
+                        .ToList()
+                })
+                .Where(x => x.Destinos.Any())
+                .ToList();
+
+            foreach (var rota in rotaLimpa)
+            {
+                dicas.Add((DicaTipo.RotaLimpa, $"✈️ {rota.Produto.Nome} é valorizado em {string.Join(", ", rota.Destinos)} e tá sem risco. Leva e lucra!"));
+            }
+
+            // 7. Produtos globais
+            var produtosGlobais = InputDados.ListaDeProdutos.Where(p =>
+                InputDados.ListaDePaises.Count(pa =>
+                    CalculadoraComercio.ProdutoEstaLegalNoPais(p, pa, motor.EventosAtivos) && pa.NecessidadeDeCompra.Contains(p.Id)) >= 5).ToList();
+
+            foreach (var p in produtosGlobais)
+            {
+                var destinos = InputDados.ListaDePaises
+                    .Where(pa => CalculadoraComercio.ProdutoEstaLegalNoPais(p, pa, motor.EventosAtivos) && pa.NecessidadeDeCompra.Contains(p.Id))
+                    .Select(pa => EmojiHelper.ObterEmoji(pa.Nome));
+                dicas.Add((DicaTipo.ProdutoGlobal, $"🌐 {p.Nome} tá com moral em tudo quanto é canto. Lucra fácil no {string.Join(", ", destinos)} - vai sem medo!"));
+            }
+
+            // 8. Reputação ruim
+            var reputacaoRuim = InputDados.ListaDePaises
+                .Where(p =>
+                    jogador.ReputacaoPorPais.TryGetValue(p.Id, out int rep) && rep < 40 &&
+                    eventosRelevantes.Any(ev => ev.PaisesFavorecidos.ContainsKey(p.Id)))
+                .ToList();
+
+            foreach (var pais in reputacaoRuim)
+            {
+                var produtosRelevantes = eventosRelevantes
+                    .Where(e => e.PaisesFavorecidos.ContainsKey(pais.Id))
+                    .SelectMany(e => e.PaisesFavorecidos[pais.Id].Keys)
+                    .Select(id => InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == id)?.Nome)
+                    .Where(nome => nome != null);
+                dicas.Add((DicaTipo.ReputacaoBaixa, $"🚷 {pais.Nome} tava pagando bem por {string.Join(", ", produtosRelevantes)}, mas sua reputação lá tá no chão. Vai melhorar essa imagem!"));
+            }
+
+            // 9. Países esquecidos
+            var paisesEsquecidos = InputDados.ListaDePaises
+                .Where(p =>
+                    !eventosRelevantes.Any(ev => ev.PaisesAfetadosDiretos.Contains(p.Id) ||
+                                                 ev.PaisesFavorecidos.ContainsKey(p.Id) ||
+                                                 ev.RiscoComercial.ContainsKey(p.Id)) &&
+                    p.NecessidadeDeCompra.Any())
+                .ToList();
+
+            foreach (var pais in paisesEsquecidos)
+            {
+                var produtosNecess = pais.NecessidadeDeCompra
+                    .Select(id => InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == id)?.Nome)
+                    .Where(nome => nome != null);
+                dicas.Add((DicaTipo.PaisEsquecido, $"🔎 {pais.Nome} quer {string.Join(", ", produtosNecess)} e ninguém tá indo pra lá. É sua chance de dominar o mercado!"));
+            }
+
+            // 10. Histórico de alta
+            var produtosHistoricoAlta = InputDados.ListaDeProdutos
+                .Where(p => historicoPrecos.ContainsKey(p.Id) && historicoPrecos[p.Id].Count >= 3)
+                .Where(p =>
+                {
+                    var h = historicoPrecos[p.Id];
+                    return h[^1] > h[^2] && h[^2] > h[^3];
+                })
+                .ToList();
+
+            foreach (var p in produtosHistoricoAlta)
+            {
+                dicas.Add((DicaTipo.HistoricoAlta, $"📊 {p.Nome} tá subindo firme nos últimos turnos. Pode apostar!"));
+            }
+
+            // 11. Rotas seguras com múltiplos produtos
+            var rotaSeguraMultiProdutos = InputDados.ListaDePaises
+                .Select(p => new
+                {
+                    Pais = p,
+                    Produtos = InputDados.ListaDeProdutos.Where(prod =>
+                        CalculadoraComercio.ProdutoEstaLegalNoPais(prod, p, motor.EventosAtivos) &&
+                        p.NecessidadeDeCompra.Contains(prod.Id) &&
+                        (!motor.EventosAtivos.Any(e => e.RiscoComercial.ContainsKey(p.Id) && e.RiscoComercial[p.Id] > 0.2m))
+                    ).ToList()
+                })
+                .Where(x => x.Produtos.Count >= 2)
+                .ToList();
+
+            foreach (var destino in rotaSeguraMultiProdutos)
+            {
+                var emoji = EmojiHelper.ObterEmoji(destino.Pais.Nome);
+                dicas.Add((DicaTipo.RotaSeguraMultipla, $"🚚 {emoji} {destino.Pais.Nome}: aceita bem {string.Join(", ", destino.Produtos.Select(p => p.Nome))} sem risco aparente!"));
+            }
+
+            // Gera e atribui as dicas
+            _dicasDisponiveis = dicas;
+        }
+
+        
+        public static bool ComprarDica(Jogador jogador)
+        {
+            if (jogador.Dinheiro < _precoDica)
+            {
+                Console.WriteLine("❌ Dinheiro insuficiente para comprar dica!");
+                return false;
+            }
+
+            if (!_dicasDisponiveis.Any())
+            {
+                Console.WriteLine("❌ Não há mais dicas disponíveis neste turno!");
+                return false;
+            }
+
+            var dica = _dicasDisponiveis.First();
+            _dicasDisponiveis.RemoveAt(0);
+            _dicasCompradas.Add(dica.Texto);
+            jogador.Dinheiro -= _precoDica;
+
+            Console.WriteLine($"✅ Dica comprada por R${_precoDica:0.00}:");
+            Console.WriteLine(dica.Texto);
+            return true;
+        }
+
+        public static void ExibirMenuDicas(Jogador jogador)
+        {
+            Console.Clear();
+            Console.WriteLine("════════════ 💡 LOJA DE DICAS COMERCIAIS ════════════");
+            Console.WriteLine($"💰 Dinheiro: R${jogador.Dinheiro:0.00} | Preço por dica: R${_precoDica:0.00}");
+            Console.WriteLine($"📚 Dicas disponíveis: {_dicasDisponiveis.Count} | Dicas compradas: {_dicasCompradas.Count}");
+            Console.WriteLine();
+
+            if (_dicasCompradas.Any())
+            {
+                Console.WriteLine("════════════ 📖 DICAS COMPRADAS ════════════");
+                foreach (var dica in _dicasCompradas)
+                {
+                    Console.WriteLine($"• {dica}");
+                }
+                Console.WriteLine();
+            }
+
+            Console.WriteLine("════════════ 🛒 DICAS DISPONÍVEIS ════════════");
+            if (_dicasDisponiveis.Any())
+            {
+                Console.WriteLine($"1. Comprar próxima dica (R${_precoDica:0.00})");
+                Console.WriteLine($"   {_dicasDisponiveis.First().Texto}");
+            }
+            else
+            {
+                Console.WriteLine("Nenhuma dica disponível no momento");
+            }
+
+            Console.WriteLine("\n0. Voltar ao menu principal");
+            Console.Write("Escolha uma opção: ");
+
+            var opcao = Console.ReadLine();
+            if (opcao == "1" && _dicasDisponiveis.Any())
+            {
+                ComprarDica(jogador);
+                Console.WriteLine("\nPressione qualquer tecla para continuar...");
+                Console.ReadKey();
+                ExibirMenuDicas(jogador); // Mostra o menu novamente após comprar
+            }
+        }
+
+    }
+
+    // Classe principal do programa
+    class Program
+    {
+        private static MotorDoJogo motor;
+        public static Dictionary<int, List<decimal>> GerarHistoricoPrecos(List<Produto> produtos, List<Pais> paises, List<Evento> eventos, Jogador jogador)
+        {
+            var historico = new Dictionary<int, List<decimal>>();
+
+            foreach (var produto in produtos)
+            {
+                var pais = paises.First(p => p.Id == jogador.PaisAtualId);
+                historico[produto.Id] = new List<decimal>
+        {
+            CalculadoraComercio.CalcularPrecoFinal(produto, pais, eventos, jogador)
+        };
+            }
+
+            return historico;
+        }
+
 
         static void Main()
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
+
             var produtos = InputDados.ListaDeProdutos;
             var paises = InputDados.ListaDePaises;
             var eventosBase = InputDados.ListaDeEventos;
-            motor = new MotorDoJogo(eventosBase);
 
+            motor = new MotorDoJogo(eventosBase);
             var jogador = new Jogador { PaisAtualId = 1 };
             jogador.ReputacaoPorPais[1] = 60;
 
             int turno = 1;
             while (turno <= 10)
             {
-                paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
-                int reputacao = 0;
-                if (jogador.ReputacaoPorPais.TryGetValue(jogador.PaisAtualId, out var valor))
-                {
-                    reputacao = valor;
-                }
-                Console.Clear();
-                Console.WriteLine("════════════ 🎮 MERCADOR GLOBAL – MENU PRINCIPAL ════════════");
-                Console.WriteLine($"📆 Turno: {turno} / 10             ⏳ Turnos restantes: {10 - turno}");
-                Console.WriteLine($"📍 País Atual: {ObterEmoji(paisAtual.Nome)} {paisAtual.Nome}");
-                Console.WriteLine($"💰 Dinheiro: R${jogador.Dinheiro:0.00}      🎒 Carga Atual: {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
-                Console.WriteLine($"📦 Produtos no inventário: {jogador.Inventario.Count} tipos / {jogador.Inventario.Sum(i => i.Quantidade)} unidades");
-                Console.WriteLine($"🛡️ Reputação local: {reputacao} / 100  🧊 Estabilidade do país: {estabilidadeVisual}");
-                Console.WriteLine($"🚨 Risco de confisco de ilegais: {riscoConfisco}% por turno");
-                Console.WriteLine();
-                // Adicione isso ao final da exibição do menu principal
-                if (motor.EventosAtivos.Any())
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("════════════════════════ 📢 EVENTOS ATIVOS – RESUMO TÁTICO ════════════════════════\n");
+                // No início de cada turno:
+                var historicoPrecos = GerarHistoricoPrecos(produtos, paises, motor.EventosAtivos, jogador);
+                DicasManager.CarregarDicasParaTurno(jogador, motor, paises, produtos, new Dictionary<int, List<decimal>>());
 
-                    var eventosRelevantes = motor.EventosAtivos
-                        .Where(e =>
-                            e.PaisesAfetadosDiretos.Contains(paisAtual.Id) ||
-                            (e.PaisesFavorecidos?.ContainsKey(paisAtual.Id) ?? false) ||
-                            (e.RiscoComercial?.ContainsKey(paisAtual.Id) ?? false))
-                        .ToList();
-
-                    foreach (var evento in eventosRelevantes)
-                    {
-                        Console.WriteLine($"🌀 {evento.Nome} ({evento.TurnosAtivo} turno restante{(evento.TurnosAtivo > 1 ? "s" : "")})");
-
-                        if (evento.ProdutosAfetados.Any())
-                        {
-                            var afetados = evento.ProdutosAfetados.Select(kv =>
-                            {
-                                var nome = InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == kv.Key)?.Nome ?? "Desconhecido";
-                                string variacao = kv.Value > 0 ? $"+{kv.Value * 100:0}%" : $"{kv.Value * 100:0}%";
-                                return $"• 📦 {nome}: {variacao}";
-                            });
-                            foreach (var linha in afetados)
-                                Console.WriteLine(linha);
-                        }
-
-                        if (evento.PaisesFavorecidos.Any())
-                        {
-                            foreach (var kv in evento.PaisesFavorecidos)
-                            {
-                                var paisNome = InputDados.ListaDePaises.FirstOrDefault(p => p.Id == kv.Key)?.Nome ?? "?";
-                                var emoji = emojiPaises.TryGetValue(paisNome, out string e) ? e : "🌍";
-                                var produtosBonus = kv.Value.Select(pv =>
-                                {
-                                    var nome = InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == pv.Key)?.Nome ?? "Desconhecido";
-                                    return $"{nome} (+{pv.Value * 100:0}%)";
-                                });
-                                Console.WriteLine($"• 🌍 Venda: {emoji} {paisNome} ({string.Join(", ", produtosBonus)})");
-                            }
-                        }
-
-                        if (evento.RiscoComercial.Any())
-                        {
-                            var paisesRiscoAlto = evento.RiscoComercial
-                                .Where(r => r.Value >= 0.3m)
-                                .Select(r =>
-                                {
-                                    var nome = InputDados.ListaDePaises.FirstOrDefault(p => p.Id == r.Key)?.Nome ?? "?";
-                                    var emoji = emojiPaises.TryGetValue(nome, out string e) ? e : "⚠️";
-                                    return $"{emoji} {nome}";
-                                });
-                            if (paisesRiscoAlto.Any())
-                                Console.WriteLine($"• ⚠️ Evite: {string.Join(", ", paisesRiscoAlto)} (risco alto)");
-                        }
-
-                        Console.WriteLine();
-                    }
-
-                    Console.WriteLine("💡 DICA CRUZADA:");
-
-                    var produtosValorizados = eventosRelevantes
-                        .SelectMany(e => e.ProdutosAfetados)
-                        .Where(kv => kv.Value > 0)
-                        .Select(kv => InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == kv.Key)?.Nome)
-                        .Where(nome => nome != null)
-                        .Distinct()
-                        .ToList();
-
-                    if (produtosValorizados.Any())
-                        Console.WriteLine($"🔼 Jogue firme: venda {string.Join(", ", produtosValorizados)} em regiões quentes!");
-
-                    var produtosTemporariamenteLegais = new List<(string Produto, List<string> PaisesIlegais)>();
-                    foreach (var produto in InputDados.ListaDeProdutos)
-                    {
-                        bool legalAqui = ProdutoEstaLegalNoPais(produto, paisAtual, motor.EventosAtivos);
-                        if (!legalAqui) continue;
-
-                        var paisesIlegais = InputDados.ListaDePaises
-                            .Where(p => p.Id != paisAtual.Id && !ProdutoEstaLegalNoPais(produto, p, motor.EventosAtivos))
-                            .Select(p => emojiPaises.TryGetValue(p.Nome, out var emoji) ? $"{emoji} {p.Nome}" : p.Nome)
-                            .ToList();
-
-                        if (paisesIlegais.Any())
-                            produtosTemporariamenteLegais.Add((produto.Nome, paisesIlegais));
-                    }
-
-                    if (produtosTemporariamenteLegais.Any())
-                    {
-                        Console.WriteLine("🟢 Produto liberado só aqui – leve pra onde é proibido!");
-                        foreach (var item in produtosTemporariamenteLegais)
-                            Console.WriteLine($"• {item.Produto}: tá legal aqui, mas proibido em {string.Join(", ", item.PaisesIlegais)}");
-                    }
-
-                    var produtosMuitoBaratos = InputDados.ListaDeProdutos
-                        .Where(p => CalcularPrecoFinal(p, paisAtual, motor.EventosAtivos, jogador) <= p.PrecoBase * 0.7m)
-                        .ToList();
-
-                    if (produtosMuitoBaratos.Any())
-                    {
-                        Console.WriteLine("💰 Preço de banana aqui:");
-                        foreach (var p in produtosMuitoBaratos)
-                        {
-                            var sugestoes = InputDados.ListaDePaises
-                                .Where(pais => pais.Id != paisAtual.Id && ProdutoEstaLegalNoPais(p, pais, motor.EventosAtivos))
-                                .Take(3)
-                                .Select(pais => emojiPaises.TryGetValue(pais.Nome, out var emoji) ? $"{emoji} {pais.Nome}" : pais.Nome);
-
-                            Console.WriteLine($"• {p.Nome} tão baratinhos – compra agora e exporta pra {string.Join(", ", sugestoes)}!");
-                        }
-                    }
-
-                    var produtosComQuedaRecente = InputDados.ListaDeProdutos
-                        .Where(p => historicoPrecos.ContainsKey(p.Id) && historicoPrecos[p.Id].Count >= 3)
-                        .Where(p =>
-                        {
-                            var hist = historicoPrecos[p.Id];
-                            return hist[^1] < hist[^2] && hist[^2] < hist[^3];
-                        })
-                        .ToList();
-
-                    if (produtosComQuedaRecente.Any())
-                    {
-                        Console.WriteLine("📉 Oportunidade rara:");
-                        foreach (var p in produtosComQuedaRecente)
-                        {
-                            var ultima = historicoPrecos[p.Id][^1];
-                            var mediaAnterior = historicoPrecos[p.Id].Take(historicoPrecos[p.Id].Count - 1).Average();
-                            var variacao = (mediaAnterior - ultima) / mediaAnterior * 100;
-                            if (variacao >= 20)
-                                Console.WriteLine($"• {p.Nome} caiu {variacao:0.#}% – estoque agora, vai valorizar!");
-                        }
-                    }
-
-                    var tentacoes = InputDados.ListaDeProdutos
-                        .Where(p => p.Tipo == ProdutoTipo.Ilegal && !ProdutoEstaLegalNoPais(p, paisAtual, motor.EventosAtivos))
-                        .ToList();
-
-                    if (tentacoes.Any())
-                    {
-                        Console.WriteLine("🕶️ Tentação proibida:");
-                        foreach (var p in tentacoes)
-                            Console.WriteLine($"• {p.Nome} tá bombando, mas é ilegal aqui. Se topar, segura firme!");
-                    }
-
-                    var rotaLimpa = InputDados.ListaDeProdutos
-                        .Where(p => ProdutoEstaLegalNoPais(p, paisAtual, motor.EventosAtivos))
-                        .Select(p => new
-                        {
-                            Produto = p,
-                            Destinos = InputDados.ListaDePaises
-                                .Where(pais => ProdutoEstaLegalNoPais(p, pais, motor.EventosAtivos) && pais.NecessidadeDeCompra.Contains(p.Id))
-                                .Where(pais =>
-                                    !motor.EventosAtivos.Any(ev => ev.RiscoComercial.ContainsKey(pais.Id) && ev.RiscoComercial[pais.Id] > 0.2m))
-                                .Select(pais => emojiPaises.GetValueOrDefault(pais.Nome, "🌍") + " " + pais.Nome)
-                                .ToList()
-                        })
-                        .Where(x => x.Destinos.Any())
-                        .ToList();
-
-                    if (rotaLimpa.Any())
-                    {
-                        Console.WriteLine("✈️ Rota limpa:");
-                        foreach (var rota in rotaLimpa)
-                            Console.WriteLine($"• {rota.Produto.Nome} é valorizado em {string.Join(", ", rota.Destinos)} e tá sem risco. Leva e lucra!");
-                    }
-
-
-                    // Adição de dicas novas como produto global, reputação baixa e países esquecidos
-                    var produtosGlobais = InputDados.ListaDeProdutos.Where(p =>
-                        InputDados.ListaDePaises.Count(pa =>
-                            ProdutoEstaLegalNoPais(p, pa, motor.EventosAtivos) && pa.NecessidadeDeCompra.Contains(p.Id)) >= 5).ToList();
-
-                    if (produtosGlobais.Any())
-                    {
-                        Console.WriteLine("🌐 Produto global:");
-                        foreach (var p in produtosGlobais)
-                        {
-                            var destinos = InputDados.ListaDePaises
-                                .Where(pa => ProdutoEstaLegalNoPais(p, pa, motor.EventosAtivos) && pa.NecessidadeDeCompra.Contains(p.Id))
-                                .Select(pa => emojiPaises.GetValueOrDefault(pa.Nome, "🌍") + " " + pa.Nome);
-                            Console.WriteLine($"• {p.Nome} tão com moral em tudo quanto é canto. Lucra fácil no {string.Join(", ", destinos)} – vai sem medo!");
-                        }
-                    }
-
-                    var reputacaoRuim = InputDados.ListaDePaises
-                        .Where(p =>
-                            jogador.ReputacaoPorPais.TryGetValue(p.Id, out int rep) && rep < 40 &&
-                            eventosRelevantes.Any(ev => ev.PaisesFavorecidos.ContainsKey(p.Id)))
-                        .ToList();
-
-                    if (reputacaoRuim.Any())
-                    {
-                        Console.WriteLine("🚷 Perdeu a moral:");
-                        foreach (var pais in reputacaoRuim)
-                        {
-                            var produtosRelevantes = eventosRelevantes
-                                .Where(e => e.PaisesFavorecidos.ContainsKey(pais.Id))
-                                .SelectMany(e => e.PaisesFavorecidos[pais.Id].Keys)
-                                .Select(id => InputDados.ListaDeProdutos.FirstOrDefault(p => p.Id == id)?.Nome)
-                                .Where(nome => nome != null);
-                            Console.WriteLine($"• {pais.Nome} tava pagando bem por {string.Join(", ", produtos)}, mas sua reputação lá tá no chão. Vai melhorar essa imagem!");
-                        }
-                    }
-
-
-                    var produtosHistoricoAlta = InputDados.ListaDeProdutos
-                        .Where(p => historicoPrecos.ContainsKey(p.Id) && historicoPrecos[p.Id].Count >= 3)
-                        .Where(p =>
-                        {
-                            var h = historicoPrecos[p.Id];
-                            return h[^1] > h[^2] && h[^2] > h[^3];
-                        })
-                        .ToList();
-
-                    if (produtosHistoricoAlta.Any())
-                    {
-                        Console.WriteLine("📊 Histórico de valorização:");
-                        foreach (var p in produtosHistoricoAlta)
-                        {
-                            Console.WriteLine($"• {p.Nome} tá subindo firme nos últimos turnos. Pode apostar!");
-                        }
-                    }
-
-                    var rotaSeguraMultiProdutos = InputDados.ListaDePaises
-                        .Select(p => new
-                        {
-                            Pais = p,
-                            Produtos = InputDados.ListaDeProdutos.Where(prod =>
-                                ProdutoEstaLegalNoPais(prod, p, motor.EventosAtivos) &&
-                                p.NecessidadeDeCompra.Contains(prod.Id) &&
-                                (!motor.EventosAtivos.Any(e => e.RiscoComercial.ContainsKey(p.Id) && e.RiscoComercial[p.Id] > 0.2m))
-                            ).ToList()
-                        })
-                        .Where(x => x.Produtos.Count >= 2)
-                        .ToList();
-
-                    if (rotaSeguraMultiProdutos.Any())
-                    {
-                        Console.WriteLine("🚚 Rota segura com múltiplos produtos:");
-                        foreach (var destino in rotaSeguraMultiProdutos)
-                        {
-                            var emoji = emojiPaises.GetValueOrDefault(destino.Pais.Nome, "🌍");
-                            Console.WriteLine($"• {emoji} {destino.Pais.Nome}: aceita bem {string.Join(", ", destino.Produtos.Select(p => p.Nome))} sem risco aparente!");
-                        }
-                    }
-
-                    Console.WriteLine();
-
-
-                    var paisesArriscados = eventosRelevantes
-                        .SelectMany(e => e.RiscoComercial)
-                        .Where(kv => kv.Value >= 0.3m)
-                        .Select(kv => InputDados.ListaDePaises.FirstOrDefault(p => p.Id == kv.Key)?.Nome)
-                        .Where(nome => nome != null)
-                        .Distinct();
-
-                    if (paisesArriscados.Any())
-                    {
-                        Console.WriteLine("🚫 Evita esses lugares por enquanto – confisco tá rolando solto:");
-                        foreach (var nome in paisesArriscados)
-                            Console.WriteLine($"• {emojiPaises.GetValueOrDefault(nome, "🌍")} {nome} – risco alto, reputação baixa, fiscalização pesada");
-                    }
-
-                    Console.WriteLine();
-                }
-                else
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("🔕 Nenhum evento ativo no momento. Ambiente estável. Tá tudo suave.\n");
-                }
-
-                Console.WriteLine("════════════════ 🔎 DESTAQUES E ALERTAS ESTRATÉGICOS ════════════════");
-
-                // Atualiza informações para exibição
-                if (jogador.Inventario.Any())
-                {
-                    var maisValorizado = jogador.Inventario
-                        .OrderByDescending(i => CalcularPrecoFinal(produtos.First(p => p.Id == i.ProdutoId), paisAtual, motor.EventosAtivos, jogador) / i.PrecoCompra)
-                        .First();
-                    produtoMaisValorizado = maisValorizado.Nome;
-                    var ilegal = jogador.Inventario
-                                .FirstOrDefault(i =>
-                                    !ProdutoEstaLegalNoPais(produtos.First(p => p.Id == i.ProdutoId), paisAtual, motor.EventosAtivos) &&
-                                    produtos.First(p => p.Id == i.ProdutoId).Tipo == ProdutoTipo.Ilegal);
-                                    produtoIlegalEmEstoque = ilegal != null ? ilegal.Nome : "Nenhum";
-                }
-
-                Console.WriteLine($"📈 Produto em alta no país atual: {produtoMaisValorizado}");
-                Console.WriteLine($"🚨 Produto sob risco de confisco: {produtoIlegalEmEstoque}");
-                Console.WriteLine($"⚠️ Carga quase no limite! ({jogador.CargaAtual():0.0}/{jogador.CapacidadeCarga}kg)");
-                Console.WriteLine($"💸 Lucro no turno atual: R${lucroTurno:0.00}");
-                Console.WriteLine($"🏆 Melhor venda do turno anterior: {melhorVendaTurnoAnterior}");
-                Console.WriteLine();
-
-                if (acoesDoTurno.Any())
-                {
-                    Console.WriteLine("════════════════ 🔄 AÇÕES REALIZADAS NESTE TURNO ════════════════");
-                    foreach (var acao in acoesDoTurno)
-                    {
-                        Console.WriteLine($"✅ {acao}");
-                    }
-                }
-                Console.WriteLine();
-
-                Console.WriteLine("1. Ver Inventário");
-                Console.WriteLine("2. Comprar Produtos");
-                Console.WriteLine("3. Vender Produtos");
-                Console.WriteLine("4. Viajar entre Países");
-                Console.WriteLine("5. Ver Eventos Ativos");
-                Console.WriteLine("6. Finalizar Turno");
-                Console.Write("Escolha uma opção: ");
+                MenuPrincipalUI.Exibir(jogador, motor, paises, produtos);
                 var opcao = Console.ReadLine();
 
-                if (opcao == "1")
+                switch (opcao)
                 {
-                    Console.Clear();
-                    Console.WriteLine("════════════ 📦 INVENTÁRIO ESTRATÉGICO ════════════");
-                    Console.WriteLine($"📍 País atual: {ObterEmoji(paisAtual.Nome)} {paisAtual.Nome}     💰 R${jogador.Dinheiro:0.00}     🎒 {jogador.CargaAtual():0.0}kg / {jogador.CapacidadeCarga}kg");
-                    Console.WriteLine($"🌟 Reputação: {jogador.ReputacaoPorPais[paisAtual.Id]}/100     🚨 Confisco de ilegais: {riscoConfisco}% por turno");
-                    Console.WriteLine();
-
-                    Console.WriteLine("┌────┬────────────────────┬────┬──────┬──────────────┬──────────────┬──────────────┬────────────┬────────────────────────────────────────┐");
-                    Console.WriteLine("│ ID │ Produto            │Qtd │Peso  │ 💰 Local     │ 💵 Compra    │ Diferença    │ Situação   │ Dica Estratégica                       │");
-                    Console.WriteLine("├────┼────────────────────┼────┼──────┼──────────────┼──────────────┼──────────────┼────────────┼────────────────────────────────────────┤");
-
-                    foreach (var item in jogador.Inventario)
-                    {
-                        var produto = produtos.First(p => p.Id == item.ProdutoId);
-                        decimal precoLocal = CalcularPrecoFinal(produto, paisAtual, motor.EventosAtivos, jogador);
-                        decimal diferenca = ((precoLocal - item.PrecoCompra) / item.PrecoCompra) * 100;
-                        bool legal = ProdutoEstaLegalNoPais(produto, paisAtual, motor.EventosAtivos);
-                        string status = legal ? "✅ Legal" : "❌ Ilegal";
-
-                        string dica = GerarDicaInventario(produto, precoLocal, item.PrecoCompra, status);
-
-                        Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome,-18} │ {item.Quantidade,3} │ {item.PesoUnitario * item.Quantidade,4:0.0} │ R${precoLocal,8:0.00} │ R${item.PrecoCompra,8:0.00} │ {diferenca,+6:0.##}%      │ {status,-10} │ {dica,-38} │");
-                    }
-
-                    Console.WriteLine("└────┴────────────────────┴────┴──────┴──────────────┴──────────────┴──────────────┴────────────┴────────────────────────────────────────┘");
-
-                    Console.WriteLine();
-                    Console.WriteLine("════════════ 🔎 RESUMO ESTRATÉGICO DO INVENTÁRIO ════════════");
-
-                    if (jogador.Inventario.Any())
-                    {
-                        var maisValorizado = jogador.Inventario
-                            .OrderByDescending(i => CalcularPrecoFinal(produtos.First(p => p.Id == i.ProdutoId), paisAtual, motor.EventosAtivos, jogador) / i.PrecoCompra)
-                            .First();
-                        var maiorLucro = ((CalcularPrecoFinal(produtos.First(p => p.Id == maisValorizado.ProdutoId), paisAtual, motor.EventosAtivos, jogador) - maisValorizado.PrecoCompra) / maisValorizado.PrecoCompra * 100);
-
-                        Console.WriteLine($"📈 Produto mais valorizado agora: {maisValorizado.Nome} (+{maiorLucro:0.#}%)");
-                    }
-
-                    var ilegal = jogador.Inventario.FirstOrDefault(i => produtos.First(p => p.Id == i.ProdutoId).Tipo == ProdutoTipo.Ilegal);
-                    Console.WriteLine($"🚨 Produto sob risco de confisco: {(ilegal != null ? ilegal.Nome : "Nenhum")}");
-                    Console.WriteLine($"⚠️ Alerta de sobrepeso: Carga {jogador.CargaAtual() / jogador.CapacidadeCarga * 100:0.0}% cheia!");
-                    Console.WriteLine("💡 Recomendação: Venda itens com bom lucro e descarte riscos ilegais");
-                    Console.WriteLine();
-                    Console.WriteLine("Pressione qualquer tecla para voltar...");
-                    Console.ReadKey();
-                }
-                else if (opcao == "2")
-                {
-                    ExibirMenuCompra(jogador, produtos, paises, motor.EventosAtivos);
-                }
-                else if (opcao == "3")
-                {
-                    ExibirMenuVenda(jogador, produtos, paises, motor.EventosAtivos);
-                }
-                else if (opcao == "4")
-                {
-                    ExibirMenuViagem(jogador, paises, motor.EventosAtivos);
-                }
-                else if (opcao == "5")
-                {
-                    ExibirEventosAtivos(motor.EventosAtivos, paises, produtos);
-                }
-                else if (opcao == "6")
-                {
-                    motor.AtualizarTurno();
-                    FinalizarTurno(jogador, motor.EventosAtivos, produtos, motor.TurnoAtual);
-                    turno++;
-
-                    if (turno > 10)
-                    {
-                        ExibirFimDeJogo(jogador, motor.EventosAtivos, paises, produtos, turno - 1);
-                        return;
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("Opção inválida.");
-                    Console.ReadKey();
+                    case "1":
+                        InventarioUI.Exibir(jogador, produtos, paises, motor.EventosAtivos);
+                        break;
+                    case "2":
+                        CompraUI.Exibir(jogador, produtos, paises, motor.EventosAtivos);
+                        break;
+                    case "3":
+                        VendaUI.Exibir(jogador, produtos, paises, motor.EventosAtivos);
+                        break;
+                    case "4":
+                        ViagemUI.Exibir(jogador, paises, motor);
+                        break;
+                    case "5":
+                        EventosUI.Exibir(motor.EventosAtivos, paises, produtos);
+                        break;
+                    case "6":
+                        motor.AtualizarTurno();
+                        TurnoUI.Finalizar(jogador, motor, produtos, paises);
+                        turno++;
+                        break;
+                    case "7":
+                        DicasManager.ExibirMenuDicas(jogador);
+                        break;
+                    default:
+                        Console.WriteLine("Opção inválida");
+                        Console.ReadKey();
+                        break;
                 }
             }
+
+            // Exibir tela de fim de jogo
+            Console.Clear();
+            Console.WriteLine("════════════ 🏁 FIM DO JOGO ════════════");
+            Console.WriteLine($"💰 Dinheiro final: R${jogador.Dinheiro:0.00}");
+            Console.WriteLine($"📦 Itens no inventário: {jogador.Inventario.Sum(i => i.Quantidade)}");
+            Console.WriteLine("\nObrigado por jogar!");
+            Console.ReadKey();
         }
+
+
     }
 }

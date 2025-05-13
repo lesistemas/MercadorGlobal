@@ -634,12 +634,12 @@ namespace ConsoleApp1
 
                 var paisesIlegais = InputDados.ListaDePaises
                    .Where(p => p.Id != paisAtual.Id && !CalculadoraComercio.ProdutoEstaLegalNoPais(produto, p, motor.EventosAtivos))
-                   .Select(p => EmojiHelper.ObterEmoji(p.Nome))
+                   .Select(p => p.Nome)
                     .ToList();
 
                 if (paisesIlegais.Any())
                 {
-                    dicas.Add((DicaTipo.ProdutoLegalAqui, $"🟢 {produto.Nome}: tá legal aqui, mas proibido em {string.Join(", ", paisesIlegais)}"));
+                    dicas.Add((DicaTipo.ProdutoLegalAqui, $"🟢 {produto.Nome}: tá legal aqui, mas proibido nos países: {string.Join(", ", paisesIlegais)}"));
                 }
             }
 

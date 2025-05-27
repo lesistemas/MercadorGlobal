@@ -234,17 +234,42 @@ namespace ConsoleApp1
             Console.WriteLine($"📍 País: {paisAtual.Nome}");
             Console.WriteLine($"💰 R${jogador.Dinheiro:0.00} 🎒 {jogador.CargaAtual():0.0}kg/{jogador.CapacidadeCarga}kg");
 
-            Console.WriteLine("\n┌────┬────────────────────┬────────────┬────────────┐");
-            Console.WriteLine("│ ID │ Produto            │ Preço      │ Peso       │");
-            Console.WriteLine("├────┼────────────────────┼────────────┼────────────┤");
+            Console.WriteLine("\n┌────┬────────────────────┬───────┬──────┬────────┬────────────┬────────────┬────────────────────┬────────────────────┬────────────────────────────┬────────────────────────────");
+            Console.WriteLine("│ ID │ Produto            │ Preço │ Peso │ Legal? │ Risco      │ Tendência  │ Destino Ideal      │ Últ. Variação (%)  │ Histórico (T3→T1)          │ Variação (%)               │");
+            Console.WriteLine("├────┼────────────────────┼───────┼──────┼────────┼────────────┼────────────┼────────────────────┼────────────────────┼────────────────────────────┼────────────────────────────┼");
 
             foreach (var produto in produtos)
             {
                 decimal preco = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
-                Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome,-18} │ R${preco,8:0.00} │ {produto.Peso,4:0.0}kg │");
+                var (hist, varPct, tendencia) = HistoricoProdutoHelper.ObterResumoHistoricoComVariacao(produto.Id);
+                bool legal = CalculadoraComercio.ProdutoEstaLegalNoPais(produto, paisAtual, eventos);
+                string legalStr = legal ? "✅" : "❌";
+
+                decimal risco = eventos
+                    .Where(ev => ev.RiscoComercial.ContainsKey(paisAtual.Id))
+                    .Sum(ev => ev.RiscoComercial[paisAtual.Id]);
+
+                string riscoStr = risco >= 0.4m ? "🔴 Alto" :
+                                  risco >= 0.2m ? "🟡 Moderado" : "🟢 Seguro";
+
+                string destinoIdeal = DestinoIdealHelper.ObterMelhorPaisParaVenda(produto, paises, eventos);
+                string ultimaVariacao = varPct.Split('→').Last().Trim();
+
+                string tendenciaIcone = tendencia == "Alta" ? "📈 Alta" :
+                                        tendencia == "Queda" ? "📉 Queda" : "= Estável";
+
+                // Adiciona ícones nos valores históricos e de variação
+                string histComSetas = string.Join(" → ", hist.Split('→').Select(v => AdicionarSeta(v.Trim())));
+                string varPctComSetas = string.Join(" → ", varPct.Split('→').Select(v => AdicionarSeta(v.Trim())));
+
+                string dica = GerarDicaProduto(tendencia, ultimaVariacao, legal, risco);
+
+                int nomeTamanho = (produto.Nome.Length > 17 ? 17 : produto.Nome.Length);
+
+                Console.WriteLine($"│ {produto.Id,2} │ {produto.Nome.Substring(0,nomeTamanho),-18} │ {preco,5:0.00} │ {produto.Peso,4:0.0} │ {legalStr,6} │ {riscoStr,-10} │ {tendenciaIcone,-10} │ {destinoIdeal,-18} │ {AdicionarSeta(ultimaVariacao),-18} │ {histComSetas,-26} │ {varPctComSetas,-26} │");
             }
 
-            Console.WriteLine("└────┴────────────────────┴────────────┴────────────┘");
+            Console.WriteLine("└────┴────────────────────┴───────┴──────┴────────┴────────────┴────────────┴────────────────────┴────────────────────┴────────────────────────────┴────────────────────────────┴");
             Console.WriteLine("\nDigite o ID do produto para comprar ou 0 para voltar: ");
 
             if (int.TryParse(Console.ReadLine(), out int idProduto) && idProduto > 0)
@@ -257,6 +282,33 @@ namespace ConsoleApp1
             }
         }
 
+        private static string GerarDicaProduto(string tendencia, string ultimaVariacao, bool legal, decimal risco)
+        {
+            if (!legal && risco >= 0.4m)
+                return "⚠️ Ilegal e arriscado";
+
+            if (!legal && risco < 0.4m)
+                return "💸 Ousado, mas seguro";
+
+            if (tendencia == "Queda" && ultimaVariacao.Contains("-"))
+                return "🛒 Comprar agora!";
+
+            if (tendencia == "Alta" && ultimaVariacao.Contains("+"))
+                return "📈 Em alta, espere vender";
+
+            if (tendencia == "Estável")
+                return "📊 Monitorar mercado";
+
+            return "🔍 Avaliar com calma";
+        }
+
+
+        private static string AdicionarSeta(string valor)
+        {
+            if (valor.Contains("-")) return "🔻 " + valor;
+            if (valor.Contains("+")) return "🔺 " + valor;
+            return "➡️ " + valor;
+        }
         private static void ProcessarCompra(Jogador jogador, Produto produto, Pais paisAtual, List<Evento> eventos)
         {
             decimal preco = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
@@ -300,6 +352,34 @@ namespace ConsoleApp1
                     PrecoCompra = preco
                 });
             }
+        }
+    }
+
+    public static class DestinoIdealHelper
+    {
+        public static string ObterMelhorPaisParaVenda(Produto produto, List<Pais> paises, List<Evento> eventos)
+        {
+            var melhores = new List<(Pais pais, decimal preco)>();
+
+            foreach (var pais in paises)
+            {
+                if (!CalculadoraComercio.ProdutoEstaLegalNoPais(produto, pais, eventos))
+                    continue;
+
+                if (!pais.NecessidadeDeCompra.Contains(produto.Id))
+                    continue;
+
+                decimal preco = CalculadoraComercio.CalcularPrecoFinal(produto, pais, eventos, new Jogador());
+                melhores.Add((pais, preco));
+            }
+
+            if (melhores.Any())
+            {
+                var destino = melhores.OrderByDescending(x => x.preco).First().pais;
+                return EmojiHelper.ObterEmoji(destino.Nome) + " " + destino.Nome;
+            }
+
+            return "🌍 Nenhum";
         }
     }
 
@@ -482,6 +562,67 @@ namespace ConsoleApp1
 
             Console.WriteLine("\nPressione qualquer tecla para continuar...");
             Console.ReadKey();
+        }
+    }
+    public static class HistoricoProdutoHelper
+    {
+        public static Dictionary<int, List<decimal>> HistoricoPrecos { get; set; } = new();
+
+        public static void RegistrarPrecoTurno(int produtoId, decimal preco)
+        {
+            if (!HistoricoPrecos.ContainsKey(produtoId))
+                HistoricoPrecos[produtoId] = new List<decimal>();
+
+            HistoricoPrecos[produtoId].Add(preco);
+            if (HistoricoPrecos[produtoId].Count > 10)
+                HistoricoPrecos[produtoId].RemoveAt(0);
+        }
+
+        public static (string historico, string variacoes, string tendencia) ObterResumoHistoricoComVariacao(int produtoId)
+        {
+            if (!HistoricoPrecos.ContainsKey(produtoId) || HistoricoPrecos[produtoId].Count < 4)
+                return ("Sem dados", "N/A", "N/A");
+
+            var hist = HistoricoPrecos[produtoId];
+            int c = hist.Count;
+            decimal t4 = hist[c - 4];
+            decimal t3 = hist[c - 3];
+            decimal t2 = hist[c - 2];
+            decimal t1 = hist[c - 1];
+
+            string histStr = $"{t3:0.00} → {t2:0.00} → {t1:0.00}";
+
+            string v1 = CalcularVariacaoPorcentagem(t3, t4);
+            string v2 = CalcularVariacaoPorcentagem(t2, t3);
+            string v3 = CalcularVariacaoPorcentagem(t1, t2);
+
+            string varStr = $"{v1} → {v2} → {v3}";
+
+            // Tendência final
+            string tendencia =
+                (v1.Contains('+') && v2.Contains('+') && v3.Contains('+')) ? "Alta" :
+                (v1.Contains('-') && v2.Contains('-') && v3.Contains('-')) ? "Queda" :
+                "Estável";
+
+            string seta = tendencia == "Alta" ? "▲" : tendencia == "Queda" ? "▼" : "=";
+
+            return (histStr, varStr, $"{seta} {tendencia}");
+        }
+
+        private static string CalcularVariacaoPorcentagem(decimal atual, decimal anterior)
+        {
+            if (anterior == 0) return "+0,0%"; // Evita divisão por zero
+            decimal variacao = (atual - anterior) / anterior * 100;
+            return $"{variacao:+0.0;-0.0}%";
+        }
+
+        public static void RegistrarTodosPrecos(List<Produto> produtos, Pais paisAtual, List<Evento> eventos, Jogador jogador)
+        {
+            foreach (var produto in produtos)
+            {
+                var preco = CalculadoraComercio.CalcularPrecoFinal(produto, paisAtual, eventos, jogador);
+                RegistrarPrecoTurno(produto.Id, preco);
+            }
         }
     }
 
@@ -904,9 +1045,17 @@ namespace ConsoleApp1
             int turno = 1;
             while (turno <= 10)
             {
+
                 // No início de cada turno:
-                var historicoPrecos = GerarHistoricoPrecos(produtos, paises, motor.EventosAtivos, jogador);
-                DicasManager.CarregarDicasParaTurno(jogador, motor, paises, produtos, new Dictionary<int, List<decimal>>());
+                var paisAtual = paises.First(p => p.Id == jogador.PaisAtualId);
+
+                // ⚠️ Registra os preços do turno atual no histórico interno
+                HistoricoProdutoHelper.RegistrarTodosPrecos(produtos, paisAtual, motor.EventosAtivos, jogador);
+
+                // 🔁 Usa esse histórico real para as dicas
+                DicasManager.CarregarDicasParaTurno(jogador, motor, paises, produtos, HistoricoProdutoHelper.HistoricoPrecos);
+
+
 
                 MenuPrincipalUI.Exibir(jogador, motor, paises, produtos);
                 var opcao = Console.ReadLine();

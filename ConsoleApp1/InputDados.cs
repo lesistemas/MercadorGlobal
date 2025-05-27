@@ -72,8 +72,8 @@ public static class InputDados
         {
             Id = 9,
             Nome = "Carros Elétricos",
-            PrecoBase = 1500m,
-            Peso = 800m,
+            PrecoBase = 600m,
+            Peso = 80m,
             Tipo = ProdutoTipo.Normal
         },
         new Produto
